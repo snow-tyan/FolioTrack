@@ -4,7 +4,7 @@
     <IndexTicker :color-convention="colorConvention" />
 
     <!-- Metric Summary Cards -->
-    <MetricCards :holdings="holdings" :color-convention="colorConvention" :base-currency="baseCurrency" />
+    <MetricCards :holdings="filteredHoldings" :color-convention="colorConvention" :base-currency="baseCurrency" />
 
     <!-- TreeMap Chart -->
     <TreeMapChart :holdings="holdings" :color-convention="colorConvention" :theme="theme" :base-currency="baseCurrency" />
@@ -77,7 +77,7 @@
         </el-table-column>
 
         <!-- Valuation -->
-        <el-table-column label="当前市值" align="right" min-width="130">
+        <el-table-column label="当前市值" align="right" min-width="130" sortable :sort-method="sortValuation">
           <template #default="scope">
             <div class="val-cell">
               <span class="font-outfit text-white font-bold">
@@ -91,7 +91,7 @@
         </el-table-column>
 
         <!-- P&L -->
-        <el-table-column label="持仓盈亏" align="right" min-width="150">
+        <el-table-column label="持仓盈亏" align="right" min-width="150" sortable :sort-method="sortPnl">
           <template #default="scope">
             <div class="pnl-cell font-outfit" :class="getPnlClass(getPnlVal(scope.row))">
               <span class="pnl-amt">
@@ -139,6 +139,8 @@
       :title="isEdit ? '编辑持仓' : '添加新持仓'"
       width="450px"
       destroy-on-close
+      align-center
+      append-to-body
     >
       <el-form :model="form" :rules="formRules" ref="formRef" label-position="top">
         <el-form-item label="股票/基金代码" prop="symbol">
@@ -304,6 +306,18 @@ const getCurrencySymbol = (currency) => {
     'HKD': 'HK$'
   }
   return symbols[currency] || '¥'
+}
+
+const sortValuation = (a, b) => {
+  const valA = a.quantity * (a.asset ? a.asset.currentPrice : 0) * (a.asset ? (a.asset.exchangeRate || 1.0) : 1.0)
+  const valB = b.quantity * (b.asset ? b.asset.currentPrice : 0) * (b.asset ? (b.asset.exchangeRate || 1.0) : 1.0)
+  return valA - valB
+}
+
+const sortPnl = (a, b) => {
+  const pnlA = a.quantity * ((a.asset ? a.asset.currentPrice : 0) - a.costPrice) * (a.asset ? (a.asset.exchangeRate || 1.0) : 1.0)
+  const pnlB = b.quantity * ((b.asset ? b.asset.currentPrice : 0) - b.costPrice) * (b.asset ? (b.asset.exchangeRate || 1.0) : 1.0)
+  return pnlA - pnlB
 }
 
 const formatMoney = (val) => {

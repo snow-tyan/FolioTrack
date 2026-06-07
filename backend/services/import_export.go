@@ -28,7 +28,7 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 	buf.Write([]byte{0xEF, 0xBB, 0xBF})
 
 	// Header row
-	err = writer.Write([]string{"symbol", "market", "quantity", "cost_price", "combos"})
+	err = writer.Write([]string{"symbol", "market", "name", "quantity", "cost_price", "combos"})
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +42,7 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 		row := []string{
 			h.Asset.Symbol,
 			h.Asset.Market,
+			h.Asset.Name,
 			strconv.FormatFloat(h.Quantity, 'f', -1, 64),
 			strconv.FormatFloat(h.CostPrice, 'f', -1, 64),
 			strings.Join(comboNames, ";"),
