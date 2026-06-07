@@ -28,6 +28,10 @@ type Asset struct {
 	CurrentPrice float64        `gorm:"type:decimal(12,4);default:0" json:"currentPrice"`
 	PrevClose    float64        `gorm:"type:decimal(12,4);default:0" json:"prevClose"`
 	LastUpdated  time.Time      `json:"lastUpdated"`
+
+	// Virtual fields (ignored by GORM)
+	Currency     string  `gorm:"-" json:"currency"`
+	ExchangeRate float64 `gorm:"-" json:"exchangeRate"`
 }
 
 // BeforeSave GORM hook to prevent zero time.Time MySQL error 1292

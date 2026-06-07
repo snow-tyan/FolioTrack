@@ -1,7 +1,7 @@
 <template>
   <div class="chart-container glass-panel">
     <div class="chart-header">
-      <h3>持仓云图 (矩形树图)</h3>
+      <h3>持仓云图</h3>
       <div class="chart-controls">
         <el-radio-group v-model="viewMode" size="small" @change="renderChart">
           <el-radio-button value="market">按市场分组</el-radio-button>
@@ -52,33 +52,21 @@ const getHoldingPnlPct = (h) => {
   return ((curr - cost) / cost) * 100
 }
 
-// Helper to get color based on P&L percentage and convention
-const getColorByPnl = (pnlPct, convention) => {
-  const maxPct = 15.0 // Cap at +15% / -15% for color scaling
-  let factor = Math.min(Math.abs(pnlPct) / maxPct, 1.0) // 0 to 1
-
-  const isUp = pnlPct >= 0
-  const isCn = convention === 'CN'
-
-  // HSL colors
-  // Rises: CN = Red (Hue 0), US = Green (Hue 140)
-  // Falls: CN = Green (Hue 140), US = Red (Hue 0)
-  let hue = 0
-  if ((isUp && !isCn) || (!isUp && isCn)) {
-    hue = 142 // Green
-  } else {
-    hue = 0 // Red
-  }
-
-  // S: Saturation, L: Lightness
-  // If factor is near 0 (0% return), we want it to blend with the dark background
-  // Low change: low saturation (20%), low lightness (25%)
-  // High change: high saturation (80%), medium lightness (45%)
-  const s = 30 + factor * 55 // 30% -> 85%
-  const l = 20 + factor * 25 // 20% -> 45%
-
-  return `hsl(${hue}, ${s}%, ${l}%)`
-}
+// Predefined high-contrast, distinct HSL-based palette for adjacent elements
+const highContrastPalette = [
+  '#4f46e5', // Indigo
+  '#10b981', // Emerald Green
+  '#f59e0b', // Amber/Orange
+  '#ec4899', // Hot Pink
+  '#06b6d4', // Cyan
+  '#f43f5e', // Rose
+  '#8b5cf6', // Violet
+  '#14b8a6', // Teal
+  '#eab308', // Yellow
+  '#3b82f6', // Blue
+  '#a855f7', // Purple
+  '#84cc16'  // Lime
+]
 
 const buildChartData = () => {
   if (!props.holdings || props.holdings.length === 0) {
@@ -90,7 +78,7 @@ const buildChartData = () => {
     const groups = {}
     props.holdings.forEach((h) => {
       const market = h.asset ? h.asset.market : 'Other'
-      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0)
+      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (h.asset ? (h.asset.exchangeRate || 1.0) : 1.0)
       if (val <= 0) return
 
       if (!groups[market]) {
@@ -98,7 +86,9 @@ const buildChartData = () => {
       }
 
       const pnlPct = getHoldingPnlPct(h)
-      const color = getColorByPnl(pnlPct, props.colorConvention)
+      // Assign distinct rotating colors for adjacent items in the same market block
+      const colorIndex = groups[market].length
+      const color = highContrastPalette[colorIndex % highContrastPalette.length]
 
       groups[market].push({
         name: `${h.asset ? h.asset.name : h.assetId}\n${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
@@ -120,50 +110,72 @@ const buildChartData = () => {
 
   } else {
     // 2. Group by Combo
-    const comboGroups = {}
+    const comboHoldings = {}
     const unclassified = []
 
     props.holdings.forEach((h) => {
-      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0)
+      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (h.asset ? (h.asset.exchangeRate || 1.0) : 1.0)
       if (val <= 0) return
 
       const pnlPct = getHoldingPnlPct(h)
-      const color = getColorByPnl(pnlPct, props.colorConvention)
-
       const node = {
-        name: `${h.asset ? h.asset.name : h.assetId}\n${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
-        value: val,
-        itemStyle: {
-          color: color
-        },
-        label: {
-          show: true,
-          formatter: `{b}`
-        }
+        h: h,
+        pnlPct: pnlPct,
+        value: val
       }
 
       if (h.combos && h.combos.length > 0) {
         h.combos.forEach((c) => {
-          if (!comboGroups[c.name]) {
-            comboGroups[c.name] = []
+          if (!comboHoldings[c.name]) {
+            comboHoldings[c.name] = []
           }
-          // We can duplicate stock under each combo it belongs to
-          comboGroups[c.name].push(node)
+          comboHoldings[c.name].push(node)
         })
       } else {
         unclassified.push(node)
       }
     })
 
-    const chartData = Object.keys(comboGroups).map((comboName) => ({
-      name: comboName,
-      children: comboGroups[comboName]
-    }))
+    // Map each group name to a specific rotating color to keep adjacent combo groups distinct
+    const comboNames = Object.keys(comboHoldings).sort()
+    const comboColorMap = {}
+    comboNames.forEach((cName, idx) => {
+      comboColorMap[cName] = highContrastPalette[idx % highContrastPalette.length]
+    })
+
+    const chartData = comboNames.map((cName) => {
+      const groupColor = comboColorMap[cName]
+      return {
+        name: cName,
+        children: comboHoldings[cName].map((node) => ({
+          name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
+          value: node.value,
+          itemStyle: {
+            color: groupColor
+          },
+          label: {
+            show: true,
+            formatter: `{b}`
+          }
+        }))
+      }
+    })
 
     if (unclassified.length > 0) {
+      const unclassifiedColor = highContrastPalette[comboNames.length % highContrastPalette.length]
       chartData.push({
         name: '未分类组合',
-        children: unclassified
+        children: unclassified.map((node) => ({
+          name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
+          value: node.value,
+          itemStyle: {
+            color: unclassifiedColor
+          },
+          label: {
+            show: true,
+            formatter: `{b}`
+          }
+        }))
       })
     }
 

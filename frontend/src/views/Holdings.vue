@@ -65,23 +65,28 @@
         <!-- Cost Price -->
         <el-table-column label="成本价" align="right" width="110">
           <template #default="scope">
-            <span class="font-outfit">¥{{ formatFloat(scope.row.costPrice, 4) }}</span>
+            <span class="font-outfit">{{ getCurrencySymbol(scope.row.asset?.currency) }}{{ formatFloat(scope.row.costPrice, 4) }}</span>
           </template>
         </el-table-column>
 
         <!-- Current Price -->
         <el-table-column label="当前价" align="right" width="110">
           <template #default="scope">
-            <span class="font-outfit">¥{{ formatFloat(scope.row.asset ? scope.row.asset.currentPrice : 0, 4) }}</span>
+            <span class="font-outfit">{{ getCurrencySymbol(scope.row.asset?.currency) }}{{ formatFloat(scope.row.asset ? scope.row.asset.currentPrice : 0, 4) }}</span>
           </template>
         </el-table-column>
 
         <!-- Valuation -->
-        <el-table-column label="当前市值" align="right" min-width="120">
+        <el-table-column label="当前市值" align="right" min-width="130">
           <template #default="scope">
-            <span class="font-outfit text-white font-bold">
-              ¥{{ formatMoney(scope.row.quantity * (scope.row.asset ? scope.row.asset.currentPrice : 0)) }}
-            </span>
+            <div class="val-cell">
+              <span class="font-outfit text-white font-bold">
+                {{ getCurrencySymbol(scope.row.asset?.currency) }}{{ formatMoney(scope.row.quantity * (scope.row.asset ? scope.row.asset.currentPrice : 0)) }}
+              </span>
+              <span class="sub-cny-val font-outfit" v-if="scope.row.asset && scope.row.asset.currency !== 'CNY'">
+                ≈ ¥{{ formatMoney(scope.row.quantity * scope.row.asset.currentPrice * scope.row.asset.exchangeRate) }}
+              </span>
+            </div>
           </template>
         </el-table-column>
 
@@ -89,8 +94,13 @@
         <el-table-column label="持仓盈亏" align="right" min-width="150">
           <template #default="scope">
             <div class="pnl-cell font-outfit" :class="getPnlClass(getPnlVal(scope.row))">
-              <span class="pnl-amt">{{ getPnlVal(scope.row) >= 0 ? '+' : '' }}{{ formatMoney(getPnlVal(scope.row)) }}</span>
-              <span class="pnl-pct">{{ getPnlVal(scope.row) >= 0 ? '+' : '' }}{{ formatFloat(getPnlPct(scope.row), 2) }}%</span>
+              <span class="pnl-amt">
+                {{ getPnlVal(scope.row) > 0 ? '+' : (getPnlVal(scope.row) < 0 ? '-' : '') }}{{ getCurrencySymbol(scope.row.asset?.currency) }}{{ formatMoney(Math.abs(getPnlVal(scope.row))) }}
+              </span>
+              <span class="pnl-pct">{{ getPnlVal(scope.row) > 0 ? '+' : '' }}{{ formatFloat(getPnlPct(scope.row), 2) }}%</span>
+              <span class="sub-cny-val" v-if="scope.row.asset && scope.row.asset.currency !== 'CNY'">
+                ≈ {{ getPnlVal(scope.row) > 0 ? '+' : (getPnlVal(scope.row) < 0 ? '-' : '') }}¥{{ formatMoney(Math.abs(getPnlVal(scope.row) * scope.row.asset.exchangeRate)) }}
+              </span>
             </div>
           </template>
         </el-table-column>
@@ -269,6 +279,15 @@ const getPnlPct = (h) => {
   return ((currPrice - h.costPrice) / h.costPrice) * 100
 }
 
+const getCurrencySymbol = (currency) => {
+  const symbols = {
+    'CNY': '¥',
+    'USD': '$',
+    'HKD': 'HK$'
+  }
+  return symbols[currency] || '¥'
+}
+
 const formatMoney = (val) => {
   if (val === undefined || val === null || isNaN(val)) return '0.00'
   return val.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -442,6 +461,19 @@ onMounted(() => {
 .pnl-pct {
   font-size: 12px;
   margin-top: 1px;
+}
+
+.val-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.sub-cny-val {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  font-weight: normal;
 }
 
 .tag-group {

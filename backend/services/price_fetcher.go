@@ -410,3 +410,118 @@ func FetchIndexData() ([]map[string]interface{}, error) {
 
 	return indexList, nil
 }
+
+// ExchangeRates represents exchange rates relative to CNY
+type ExchangeRates struct {
+	USD float64 `json:"usd"`
+	HKD float64 `json:"hkd"`
+	CNY float64 `json:"cny"`
+}
+
+// DefaultExchangeRates is the fallback in case the Sina API is offline
+var DefaultExchangeRates = ExchangeRates{
+	USD: 7.20,
+	HKD: 0.92,
+	CNY: 1.0,
+}
+
+// GetExchangeRates fetches exchange rates from Sina Finance or Redis
+func GetExchangeRates() (ExchangeRates, error) {
+	ctx := context.Background()
+	cacheKey := "foliotrack:exchange_rates"
+
+	// Try Redis first
+	if models.RedisClient != nil {
+		val, err := models.RedisClient.Get(ctx, cacheKey).Result()
+		if err == nil && val != "" {
+			var rates ExchangeRates
+			if err := json.Unmarshal([]byte(val), &rates); err == nil {
+				return rates, nil
+			}
+		}
+	}
+
+	// Fetch from Sina Finance
+	url := "https://hq.sinajs.cn/list=fx_susdcny,fx_shkdcny"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return DefaultExchangeRates, err
+	}
+	req.Header.Set("Referer", "https://finance.sina.com.cn/")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return DefaultExchangeRates, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return DefaultExchangeRates, err
+	}
+
+	utf8Bytes, _ := utils.GBKToUTF8(bodyBytes)
+	responseString := string(utf8Bytes)
+
+	re := regexp.MustCompile(`var hq_str_([a-zA-Z0-9_]+)="([^"]*)";`)
+	matches := re.FindAllStringSubmatch(responseString, -1)
+
+	rates := DefaultExchangeRates
+
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		sym := match[1]
+		csvData := match[2]
+		if csvData == "" {
+			continue
+		}
+		parts := strings.Split(csvData, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		rateVal, err := strconv.ParseFloat(parts[1], 64)
+		if err != nil || rateVal <= 0 {
+			continue
+		}
+
+		if sym == "fx_susdcny" {
+			rates.USD = rateVal
+		} else if sym == "fx_shkdcny" {
+			rates.HKD = rateVal
+		}
+	}
+
+	// Cache to Redis for 10 minutes
+	if models.RedisClient != nil {
+		if cacheBytes, err := json.Marshal(rates); err == nil {
+			_ = models.RedisClient.Set(ctx, cacheKey, cacheBytes, 10*time.Minute).Err()
+		}
+	}
+
+	return rates, nil
+}
+
+// PopulateAssetCurrencyAndRates fills virtual fields for a slice of assets
+func PopulateAssetCurrencyAndRates(assets []*models.Asset) {
+	rates, _ := GetExchangeRates()
+	for _, asset := range assets {
+		switch asset.Market {
+		case "A-share", "Fund":
+			asset.Currency = "CNY"
+			asset.ExchangeRate = 1.0
+		case "US-stock":
+			asset.Currency = "USD"
+			asset.ExchangeRate = rates.USD
+		case "HK-stock":
+			asset.Currency = "HKD"
+			asset.ExchangeRate = rates.HKD
+		default:
+			asset.Currency = "CNY"
+			asset.ExchangeRate = 1.0
+		}
+	}
+}

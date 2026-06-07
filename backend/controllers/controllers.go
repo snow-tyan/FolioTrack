@@ -149,6 +149,7 @@ func ListHoldings(c *gin.Context) {
 	// Fetch & update prices dynamically (with 1-min caching inside the service)
 	if len(assetsToUpdate) > 0 {
 		_ = services.UpdateAssetPrices(models.DB, assetsToUpdate, false, false)
+		services.PopulateAssetCurrencyAndRates(assetsToUpdate)
 	}
 
 	// Re-assign updated assets back to response

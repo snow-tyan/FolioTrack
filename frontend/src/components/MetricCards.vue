@@ -86,10 +86,11 @@ const metrics = computed(() => {
     const cost = h.costPrice || 0
     const currPrice = h.asset ? (h.asset.currentPrice || 0) : 0
     const prevClose = h.asset ? (h.asset.prevClose || currPrice) : currPrice
+    const rate = h.asset ? (h.asset.exchangeRate || 1.0) : 1.0
 
-    totalValue += qty * currPrice
-    totalCost += qty * cost
-    dailyPnl += qty * (currPrice - prevClose)
+    totalValue += qty * currPrice * rate
+    totalCost += qty * cost * rate
+    dailyPnl += qty * (currPrice - prevClose) * rate
   })
 
   const cumulativePnl = totalValue - totalCost

@@ -41,3 +41,6 @@ yarn-error.log*
 
 # Docker data local mount fallbacks
 /deploy/mysql/data/
+
+*.csv
+!foliotrack_template.csv

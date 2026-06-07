@@ -81,3 +81,21 @@ func TestFetchIndexData(t *testing.T) {
 		}
 	}
 }
+
+func TestGetExchangeRates(t *testing.T) {
+	rates, err := GetExchangeRates()
+	if err != nil {
+		t.Fatalf("GetExchangeRates failed: %v", err)
+	}
+
+	t.Logf("Fetched rates: USD=%.4f, HKD=%.4f, CNY=%.4f", rates.USD, rates.HKD, rates.CNY)
+	if rates.USD <= 0 {
+		t.Errorf("Expected positive USD rate, got %.4f", rates.USD)
+	}
+	if rates.HKD <= 0 {
+		t.Errorf("Expected positive HKD rate, got %.4f", rates.HKD)
+	}
+	if rates.CNY != 1.0 {
+		t.Errorf("Expected CNY rate to be 1.0, got %.4f", rates.CNY)
+	}
+}

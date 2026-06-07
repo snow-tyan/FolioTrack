@@ -315,6 +315,7 @@ onUnmounted(() => {
 /* Main Content Area Styling */
 .main-area {
   flex: 1;
+  min-width: 0; /* 🟢 Prevents flex child from overflowing on window shrink */
   margin-left: 270px; /* sidebar width (240) + spacing (30) */
   padding: 15px 15px 15px 0;
   display: flex;
