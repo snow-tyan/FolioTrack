@@ -36,6 +36,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Save claims to context
 		c.Set("userID", claims.UserID)
 		c.Set("username", claims.Username)
+		c.Set("role", claims.Role)
 		c.Next()
 	}
 }
@@ -97,6 +98,18 @@ func SetupRouter() *gin.Engine {
 
 			// Indexes
 			protected.GET("/market/indexes", controllers.GetMarketIndexes)
+
+			// Personnel Management
+			protected.GET("/users", controllers.ListUsers)
+			protected.PUT("/users/:id", controllers.UpdateUser)
+			protected.DELETE("/users/:id", controllers.DeleteUser)
+			protected.POST("/users/:id/reset-password", controllers.ResetUserPassword)
+			protected.POST("/users/:id/unlock", controllers.UnlockUser)
+			protected.GET("/users/:id/holdings", controllers.GetUserHoldings)
+
+			// Public Market
+			protected.GET("/market/public/holdings", controllers.ListPublicHoldings)
+			protected.GET("/market/public/combos", controllers.ListPublicCombos)
 		}
 	}
 

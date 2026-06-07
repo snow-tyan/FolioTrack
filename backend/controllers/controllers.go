@@ -44,8 +44,11 @@ func Register(c *gin.Context) {
 	}
 
 	user := models.User{
-		Username:     input.Username,
-		PasswordHash: string(hashedPassword),
+		Username:      input.Username,
+		PasswordHash:  string(hashedPassword),
+		Role:          "user",
+		LoginAttempts: 0,
+		IsLocked:      false,
 	}
 
 	if err := models.DB.Create(&user).Error; err != nil {
@@ -53,7 +56,7 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	utils.Success(c, gin.H{"id": user.ID, "username": user.Username})
+	utils.Success(c, gin.H{"id": user.ID, "username": user.Username, "role": user.Role})
 }
 
 type LoginInput struct {
@@ -75,14 +78,37 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Compare password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
-		utils.Error(c, http.StatusUnauthorized, 40005, "用户名或密码错误")
+	// Check if account is locked
+	if user.IsLocked {
+		utils.Error(c, http.StatusForbidden, 40016, "该账号因密码连续输入错误5次已被锁定，请联系管理员重置或解锁")
 		return
 	}
 
+	// Compare password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
+		// Increment login attempts
+		user.LoginAttempts++
+		if user.LoginAttempts >= 5 {
+			user.IsLocked = true
+		}
+		models.DB.Save(&user)
+
+		if user.IsLocked {
+			utils.Error(c, http.StatusForbidden, 40016, "密码输入错误次数过多，账号已被锁定，请联系管理员解锁")
+		} else {
+			utils.Error(c, http.StatusUnauthorized, 40005, "用户名或密码错误")
+		}
+		return
+	}
+
+	// Reset login attempts on successful login
+	if user.LoginAttempts > 0 {
+		user.LoginAttempts = 0
+		models.DB.Save(&user)
+	}
+
 	// Generate JWT
-	token, err := utils.GenerateJWT(user.ID, user.Username)
+	token, err := utils.GenerateJWT(user.ID, user.Username, user.Role)
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, 50003, "生成 Token 失败")
 		return
@@ -93,6 +119,7 @@ func Login(c *gin.Context) {
 		"user": gin.H{
 			"id":       user.ID,
 			"username": user.Username,
+			"role":     user.Role,
 		},
 	})
 }
@@ -113,6 +140,7 @@ func Me(c *gin.Context) {
 	utils.Success(c, gin.H{
 		"id":       user.ID,
 		"username": user.Username,
+		"role":     user.Role,
 	})
 }
 
@@ -124,13 +152,16 @@ type HoldingInput struct {
 	Quantity  float64  `json:"quantity" binding:"required,gt=0"`
 	CostPrice float64  `json:"costPrice" binding:"required,gt=0"`
 	ComboIDs  []uint   `json:"comboIds"`
+	IsPublic  *bool    `json:"isPublic"`
 }
 
 func ListHoldings(c *gin.Context) {
 	userID, _ := c.Get("userID")
+	userIDVal := userID.(uint)
 
 	var holdings []*models.Holding
-	err := models.DB.Preload("Asset").Preload("Combos").Where("user_id = ?", userID).Find(&holdings).Error
+	err := models.DB.Preload("Asset").Preload("Combos").Preload("User").Where("user_id = ?", userIDVal).Find(&holdings).Error
+
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, 50004, "获取持仓列表失败")
 		return
@@ -211,11 +242,16 @@ func CreateHolding(c *gin.Context) {
 		}
 
 		// 3. Create holding
+		isPublic := false
+		if input.IsPublic != nil {
+			isPublic = *input.IsPublic
+		}
 		holding = models.Holding{
 			UserID:    userID.(uint),
 			AssetID:   asset.ID,
 			Quantity:  input.Quantity,
 			CostPrice: input.CostPrice,
+			IsPublic:  isPublic,
 		}
 		if err := tx.Create(&holding).Error; err != nil {
 			return err
@@ -273,6 +309,9 @@ func UpdateHolding(c *gin.Context) {
 	err = models.DB.Transaction(func(tx *gorm.DB) error {
 		holding.Quantity = input.Quantity
 		holding.CostPrice = input.CostPrice
+		if input.IsPublic != nil {
+			holding.IsPublic = *input.IsPublic
+		}
 
 		if err := tx.Save(&holding).Error; err != nil {
 			return err
@@ -328,9 +367,10 @@ func DeleteHolding(c *gin.Context) {
 // === COMBO CONTROLLER ===
 
 type ComboInput struct {
-	Name   string `json:"name" binding:"required,min=1,max=50"`
-	Color  string `json:"color"`
-	Market string `json:"market"`
+	Name     string `json:"name" binding:"required,min=1,max=50"`
+	Color    string `json:"color"`
+	Market   string `json:"market"`
+	IsPublic *bool  `json:"isPublic"`
 }
 
 func ListCombos(c *gin.Context) {
@@ -364,11 +404,17 @@ func CreateCombo(c *gin.Context) {
 		market = "A-share" // Default fallback
 	}
 
+	isPublic := false
+	if input.IsPublic != nil {
+		isPublic = *input.IsPublic
+	}
+
 	combo := models.Combo{
-		UserID: userID.(uint),
-		Name:   input.Name,
-		Color:  color,
-		Market: market,
+		UserID:   userID.(uint),
+		Name:     input.Name,
+		Color:    color,
+		Market:   market,
+		IsPublic: isPublic,
 	}
 
 	if err := models.DB.Create(&combo).Error; err != nil {
@@ -401,15 +447,33 @@ func UpdateCombo(c *gin.Context) {
 		return
 	}
 
-	combo.Name = input.Name
-	if input.Color != "" {
-		combo.Color = input.Color
-	}
-	if input.Market != "" {
-		combo.Market = input.Market
-	}
+	err = models.DB.Transaction(func(tx *gorm.DB) error {
+		combo.Name = input.Name
+		if input.Color != "" {
+			combo.Color = input.Color
+		}
+		if input.Market != "" {
+			combo.Market = input.Market
+		}
+		if input.IsPublic != nil {
+			combo.IsPublic = *input.IsPublic
+			if *input.IsPublic {
+				// Cascaded publish: set all holdings in this combo to public
+				if err := tx.Model(&models.Holding{}).
+					Where("id IN (SELECT holding_id FROM holding_combos WHERE combo_id = ?)", combo.ID).
+					Update("is_public", true).Error; err != nil {
+					return err
+				}
+			}
+		}
 
-	if err := models.DB.Save(&combo).Error; err != nil {
+		if err := tx.Save(&combo).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, 50010, "更新组合失败")
 		return
 	}
@@ -493,3 +557,373 @@ func GetMarketIndexes(c *gin.Context) {
 	}
 	utils.Success(c, indices)
 }
+
+// === PERSONNEL MANAGEMENT ===
+
+func ListUsers(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" && role != "manager" {
+		utils.Error(c, http.StatusForbidden, 40024, "无权访问人员管理")
+		return
+	}
+
+	var users []models.User
+	if err := models.DB.Order("id asc").Find(&users).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50015, "获取用户列表失败")
+		return
+	}
+
+	utils.Success(c, users)
+}
+
+type UserUpdateInput struct {
+	Role     string `json:"role" binding:"required"`
+	IsLocked *bool  `json:"isLocked" binding:"required"`
+}
+
+func UpdateUser(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" && role != "manager" {
+		utils.Error(c, http.StatusForbidden, 40024, "无权修改用户权限")
+		return
+	}
+
+	idStr := c.Param("id")
+	targetID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40025, "无效的用户 ID")
+		return
+	}
+
+	var input UserUpdateInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.Error(c, http.StatusBadRequest, 40026, "参数不合法")
+		return
+	}
+
+	validRoles := map[string]bool{"admin": true, "manager": true, "advanced": true, "user": true}
+	if !validRoles[input.Role] {
+		utils.Error(c, http.StatusBadRequest, 40027, "不支持的目标角色")
+		return
+	}
+
+	var targetUser models.User
+	if err := models.DB.First(&targetUser, targetID).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40028, "用户未找到")
+		return
+	}
+
+	// Enforce hierarchical restriction
+	if role == "manager" {
+		if targetUser.Role == "admin" || targetUser.Role == "manager" {
+			utils.Error(c, http.StatusForbidden, 40029, "管理员无权修改更高或同等权限的用户")
+			return
+		}
+		if input.Role == "admin" {
+			utils.Error(c, http.StatusForbidden, 40030, "管理员不能将用户提权为超级管理员")
+			return
+		}
+	}
+
+	targetUser.Role = input.Role
+	if input.IsLocked != nil {
+		targetUser.IsLocked = *input.IsLocked
+		if !targetUser.IsLocked {
+			targetUser.LoginAttempts = 0
+		}
+	}
+
+	if err := models.DB.Save(&targetUser).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50016, "更新用户失败")
+		return
+	}
+
+	utils.Success(c, "更新用户成功")
+}
+
+func DeleteUser(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	role, _ := c.Get("role")
+	if role != "admin" && role != "manager" {
+		utils.Error(c, http.StatusForbidden, 40024, "无权删除用户")
+		return
+	}
+
+	idStr := c.Param("id")
+	targetID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40025, "无效的用户 ID")
+		return
+	}
+
+	if userID.(uint) == uint(targetID) {
+		utils.Error(c, http.StatusBadRequest, 40031, "不能删除当前登录的账号")
+		return
+	}
+
+	var targetUser models.User
+	if err := models.DB.First(&targetUser, targetID).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40028, "用户未找到")
+		return
+	}
+
+	if role == "manager" {
+		if targetUser.Role == "admin" || targetUser.Role == "manager" {
+			utils.Error(c, http.StatusForbidden, 40029, "管理员无权删除更高或同等权限的用户")
+			return
+		}
+	}
+
+	err = models.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", targetID).Delete(&models.Holding{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", targetID).Delete(&models.Combo{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&models.User{}, targetID).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50017, "删除用户失败")
+		return
+	}
+
+	utils.Success(c, "删除用户成功")
+}
+
+type ResetPasswordInput struct {
+	Password string `json:"password" binding:"required,min=6"`
+}
+
+func ResetUserPassword(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" && role != "manager" {
+		utils.Error(c, http.StatusForbidden, 40024, "无权重置密码")
+		return
+	}
+
+	idStr := c.Param("id")
+	targetID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40025, "无效的用户 ID")
+		return
+	}
+
+	var input ResetPasswordInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.Error(c, http.StatusBadRequest, 40026, "密码格式不合法，最少 6 位字符")
+		return
+	}
+
+	var targetUser models.User
+	if err := models.DB.First(&targetUser, targetID).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40028, "用户未找到")
+		return
+	}
+
+	if role == "manager" {
+		if targetUser.Role == "admin" || targetUser.Role == "manager" {
+			utils.Error(c, http.StatusForbidden, 40029, "管理员无权修改更高或同等权限的用户密码")
+			return
+		}
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50001, "密码加密失败")
+		return
+	}
+
+	targetUser.PasswordHash = string(hashedPassword)
+	targetUser.LoginAttempts = 0
+	targetUser.IsLocked = false
+
+	if err := models.DB.Save(&targetUser).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50018, "重置密码失败")
+		return
+	}
+
+	utils.Success(c, "重置密码成功")
+}
+
+func UnlockUser(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" && role != "manager" {
+		utils.Error(c, http.StatusForbidden, 40024, "无权解锁用户")
+		return
+	}
+
+	idStr := c.Param("id")
+	targetID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40025, "无效的用户 ID")
+		return
+	}
+
+	var targetUser models.User
+	if err := models.DB.First(&targetUser, targetID).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40028, "用户未找到")
+		return
+	}
+
+	if role == "manager" {
+		if targetUser.Role == "admin" || targetUser.Role == "manager" {
+			utils.Error(c, http.StatusForbidden, 40029, "管理员无权解锁更高或同等权限的用户")
+			return
+		}
+	}
+
+	targetUser.LoginAttempts = 0
+	targetUser.IsLocked = false
+
+	if err := models.DB.Save(&targetUser).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50019, "解锁用户失败")
+		return
+	}
+
+	utils.Success(c, "解锁成功且错误次数已清零")
+}
+
+// === PUBLIC MARKET ===
+
+func ListPublicHoldings(c *gin.Context) {
+	var holdings []*models.Holding
+	// Query only holdings where is_public = true (including current user's own public holdings)
+	err := models.DB.Preload("Asset").Preload("Combos").Preload("User").
+		Where("is_public = ?", true).
+		Find(&holdings).Error
+
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50020, "获取公开持仓失败")
+		return
+	}
+
+	// Dynamic price update (same logic as list holdings)
+	var assetsToUpdate []*models.Asset
+	assetMap := make(map[uint]*models.Asset)
+	for _, h := range holdings {
+		if _, ok := assetMap[h.AssetID]; !ok {
+			assetMap[h.AssetID] = &h.Asset
+			assetsToUpdate = append(assetsToUpdate, &h.Asset)
+		}
+	}
+	if len(assetsToUpdate) > 0 {
+		_ = services.UpdateAssetPrices(models.DB, assetsToUpdate, false, false)
+		services.PopulateAssetCurrencyAndRates(assetsToUpdate)
+	}
+	for _, h := range holdings {
+		if updatedAsset, ok := assetMap[h.AssetID]; ok {
+			h.Asset = *updatedAsset
+		}
+	}
+
+	utils.Success(c, holdings)
+}
+
+func ListPublicCombos(c *gin.Context) {
+	var combos []models.Combo
+	// Query public combos, and preload only their public holdings (including current user's own public combos)
+	err := models.DB.Preload("Holdings", "is_public = ?", true).
+		Preload("Holdings.Asset").Preload("Holdings.User").
+		Where("is_public = ?", true).
+		Find(&combos).Error
+
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50021, "获取公开组合失败")
+		return
+	}
+
+	// Collect unique assets inside combos for dynamic price update
+	var assetsToUpdate []*models.Asset
+	assetMap := make(map[uint]*models.Asset)
+	for i := range combos {
+		for j := range combos[i].Holdings {
+			h := &combos[i].Holdings[j]
+			if _, ok := assetMap[h.AssetID]; !ok {
+				assetMap[h.AssetID] = &h.Asset
+				assetsToUpdate = append(assetsToUpdate, &h.Asset)
+			}
+		}
+	}
+	if len(assetsToUpdate) > 0 {
+		_ = services.UpdateAssetPrices(models.DB, assetsToUpdate, false, false)
+		services.PopulateAssetCurrencyAndRates(assetsToUpdate)
+	}
+	// Re-assign prices and load rates
+	for i := range combos {
+		for j := range combos[i].Holdings {
+			h := &combos[i].Holdings[j]
+			if updatedAsset, ok := assetMap[h.AssetID]; ok {
+				h.Asset = *updatedAsset
+			}
+		}
+	}
+
+	utils.Success(c, combos)
+}
+
+func GetUserHoldings(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" && role != "manager" {
+		utils.Error(c, http.StatusForbidden, 40024, "无权访问此数据")
+		return
+	}
+
+	idStr := c.Param("id")
+	targetID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40025, "无效的用户 ID")
+		return
+	}
+
+	var targetUser models.User
+	if err := models.DB.First(&targetUser, targetID).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40028, "用户未找到")
+		return
+	}
+
+	if role == "manager" {
+		if targetUser.Role == "admin" || targetUser.Role == "manager" {
+			utils.Error(c, http.StatusForbidden, 40029, "管理员无权查看同等或更高权限用户的持仓")
+			return
+		}
+	}
+
+	var holdings []*models.Holding
+	err = models.DB.Preload("Asset").Preload("Combos").Preload("User").Where("user_id = ?", targetID).Find(&holdings).Error
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50004, "获取持仓列表失败")
+		return
+	}
+
+	// Extract unique assets to update prices
+	var assetsToUpdate []*models.Asset
+	assetMap := make(map[uint]*models.Asset)
+	for _, h := range holdings {
+		if _, ok := assetMap[h.AssetID]; !ok {
+			assetMap[h.AssetID] = &h.Asset
+			assetsToUpdate = append(assetsToUpdate, &h.Asset)
+		}
+	}
+
+	// Fetch & update prices dynamically
+	if len(assetsToUpdate) > 0 {
+		_ = services.UpdateAssetPrices(models.DB, assetsToUpdate, false, false)
+		services.PopulateAssetCurrencyAndRates(assetsToUpdate)
+	}
+
+	// Re-assign updated assets back to response
+	for _, h := range holdings {
+		if updatedAsset, ok := assetMap[h.AssetID]; ok {
+			h.Asset = *updatedAsset
+		}
+	}
+
+	utils.Success(c, holdings)
+}
+
+

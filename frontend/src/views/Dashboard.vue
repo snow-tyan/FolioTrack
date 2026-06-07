@@ -18,9 +18,19 @@
           <span>组合管理</span>
         </router-link>
 
+        <router-link :to="{ name: 'PublicMarket' }" class="menu-item" active-class="active">
+          <el-icon><Compass /></el-icon>
+          <span>公开市场</span>
+        </router-link>
+
         <router-link :to="{ name: 'ImportExport' }" class="menu-item" active-class="active">
           <el-icon><UploadFilled /></el-icon>
           <span>导入导出</span>
+        </router-link>
+
+        <router-link v-if="userRole === 'admin' || userRole === 'manager'" :to="{ name: 'Users' }" class="menu-item" active-class="active">
+          <el-icon><User /></el-icon>
+          <span>人员管理</span>
         </router-link>
       </nav>
 
@@ -109,6 +119,7 @@ const router = useRouter()
 const route = useRoute()
 
 const username = ref('User')
+const userRole = ref('user')
 const colorConvention = ref('CN')
 const theme = ref('dark-indigo')
 const baseCurrency = ref('CNY')
@@ -142,8 +153,10 @@ const loadUserData = () => {
     try {
       const user = JSON.parse(userStr)
       username.value = user.username || 'User'
+      userRole.value = user.role || 'user'
     } catch (e) {
       username.value = 'User'
+      userRole.value = 'user'
     }
   }
 
@@ -201,6 +214,10 @@ const currentRouteTitle = computed(() => {
       return '组合与标签管理'
     case 'ImportExport':
       return '持仓数据导入/导出'
+    case 'Users':
+      return '人员与权限管理'
+    case 'PublicMarket':
+      return '公开共享市场'
     default:
       return '资产管理系统'
   }
@@ -208,7 +225,7 @@ const currentRouteTitle = computed(() => {
 
 const updateTime = () => {
   const now = new Date()
-  currentTime.value = now.toLocaleTimeString('zh-CN', { hour12: false })
+  currentTime.value = now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
 onMounted(() => {

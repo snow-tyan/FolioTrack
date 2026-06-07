@@ -27,6 +27,8 @@
             <el-select v-model="comboFilter" placeholder="过滤组合" size="small" clearable style="width: 120px;">
               <el-option v-for="combo in filteredCombos" :key="combo.id" :value="combo.id" :label="combo.name" />
             </el-select>
+
+
           </div>
         </div>
         
@@ -123,6 +125,17 @@
           </template>
         </el-table-column>
 
+
+
+        <!-- Public Status column -->
+        <el-table-column label="共享" width="100" align="center">
+          <template #default="scope">
+            <el-tag size="small" :type="getPublicStatus(scope.row).type" effect="dark">
+              {{ getPublicStatus(scope.row).label }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
         <!-- Actions -->
         <el-table-column label="操作" width="120" fixed="right" align="center">
           <template #default="scope">
@@ -169,6 +182,13 @@
             <el-option v-for="combo in dialogFilteredCombos" :key="combo.id" :value="combo.id" :label="combo.name" />
           </el-select>
         </el-form-item>
+
+        <el-form-item label="公开共享" prop="isPublic">
+          <el-switch v-model="form.isPublic" active-text="公开此持仓" inactive-text="仅私有" />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px; line-height: 1.4;">
+            注：若加入已公开的组合，默认会自动开启公开。您仍可在此手动关闭该个股公开。
+          </div>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -182,7 +202,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
 import IndexTicker from '../components/IndexTicker.vue'
@@ -209,6 +229,7 @@ const combos = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
+const isInitializing = ref(false)
 const submitLoading = ref(false)
 const currentHoldingId = ref(null)
 
@@ -216,13 +237,31 @@ const searchQuery = ref('')
 const marketFilter = ref('')
 const comboFilter = ref('')
 
+
+const currentUserID = ref(0)
+const currentUserRole = ref('user')
+
+const loadCurrentUser = () => {
+  const userStr = localStorage.getItem('user')
+  if (userStr) {
+    try {
+      const user = JSON.parse(userStr)
+      currentUserID.value = user.id || 0
+      currentUserRole.value = user.role || 'user'
+    } catch (e) {
+      console.error(e)
+    }
+  }
+}
+
 const formRef = ref(null)
 const form = reactive({
   symbol: '',
   market: 'A-share',
   quantity: 100,
   costPrice: 10.0,
-  comboIds: []
+  comboIds: [],
+  isPublic: false
 })
 
 const formRules = {
@@ -263,6 +302,24 @@ watch(() => form.market, (newMarket) => {
     })
   }
 })
+
+watch(() => form.comboIds, (newVal, oldVal) => {
+  if (isInitializing.value) return
+  if (newVal && newVal.length > 0) {
+    const oldPublicIds = (oldVal || []).filter(id => {
+      const c = combos.value.find(item => item.id === id)
+      return c && c.isPublic
+    })
+    const newPublicIds = newVal.filter(id => {
+      const c = combos.value.find(item => item.id === id)
+      return c && c.isPublic
+    })
+    if (newPublicIds.length > oldPublicIds.length) {
+      form.isPublic = true
+      ElMessage.info('已选择已公开的投资组合，已自动开启此持仓公开。如需私有，可手动关闭。')
+    }
+  }
+}, { deep: true })
 
 const fetchHoldings = async () => {
   loading.value = true
@@ -439,7 +496,13 @@ const getMarketTagType = (market) => {
   return types[market] || 'info'
 }
 
+const getPublicStatus = (row) => {
+  if (row.isPublic) return { label: '公开', type: 'success' }
+  return { label: '私有', type: 'info' }
+}
+
 const openAddDialog = () => {
+  isInitializing.value = true
   isEdit.value = false
   dialogVisible.value = true
   form.symbol = ''
@@ -447,9 +510,14 @@ const openAddDialog = () => {
   form.quantity = 100
   form.costPrice = 10.0
   form.comboIds = []
+  form.isPublic = false
+  nextTick(() => {
+    isInitializing.value = false
+  })
 }
 
 const openEditDialog = (row) => {
+  isInitializing.value = true
   isEdit.value = true
   currentHoldingId.value = row.id
   dialogVisible.value = true
@@ -459,6 +527,10 @@ const openEditDialog = (row) => {
   form.quantity = row.quantity
   form.costPrice = row.costPrice
   form.comboIds = row.combos ? row.combos.map((c) => c.id) : []
+  form.isPublic = row.isPublic || false
+  nextTick(() => {
+    isInitializing.value = false
+  })
 }
 
 const submitForm = () => {
@@ -504,6 +576,7 @@ const handleDelete = (row) => {
 }
 
 onMounted(() => {
+  loadCurrentUser()
   fetchHoldings()
   fetchCombos()
 })

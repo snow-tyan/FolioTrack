@@ -7,14 +7,17 @@ import (
 )
 
 type User struct {
-	ID           uint           `gorm:"primaryKey" json:"id"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	UpdatedAt    time.Time      `json:"updatedAt"`
-	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
-	Username     string         `gorm:"uniqueIndex;not null;size:50" json:"username"`
-	PasswordHash string         `gorm:"not null" json:"-"`
-	Holdings     []Holding      `gorm:"foreignKey:UserID" json:"holdings,omitempty"`
-	Combos       []Combo        `gorm:"foreignKey:UserID" json:"combos,omitempty"`
+	ID            uint           `gorm:"primaryKey" json:"id"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+	Username      string         `gorm:"uniqueIndex;not null;size:50" json:"username"`
+	PasswordHash  string         `gorm:"not null" json:"-"`
+	Role          string         `gorm:"not null;size:20;default:'user'" json:"role"`
+	LoginAttempts int            `gorm:"not null;default:0" json:"loginAttempts"`
+	IsLocked      bool           `gorm:"not null;default:false" json:"isLocked"`
+	Holdings      []Holding      `gorm:"foreignKey:UserID" json:"holdings,omitempty"`
+	Combos        []Combo        `gorm:"foreignKey:UserID" json:"combos,omitempty"`
 }
 
 type Asset struct {
@@ -49,10 +52,12 @@ type Holding struct {
 	UpdatedAt time.Time      `json:"updatedAt"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 	UserID    uint           `gorm:"uniqueIndex:idx_user_asset;not null" json:"userId"`
+	User      User           `gorm:"foreignKey:UserID" json:"user"`
 	AssetID   uint           `gorm:"uniqueIndex:idx_user_asset;not null" json:"assetId"`
 	Asset     Asset          `gorm:"foreignKey:AssetID" json:"asset"`
 	Quantity  float64        `gorm:"type:decimal(16,4);default:0" json:"quantity"`
 	CostPrice float64        `gorm:"type:decimal(16,4);default:0" json:"costPrice"`
+	IsPublic  bool           `gorm:"not null;default:false" json:"isPublic"`
 	Combos    []Combo        `gorm:"many2many:holding_combos;constraint:OnDelete:CASCADE;" json:"combos"`
 }
 
@@ -65,6 +70,7 @@ type Combo struct {
 	Name      string         `gorm:"not null;size:50" json:"name"`
 	Color     string         `gorm:"size:20" json:"color"` // e.g. "#409EFF"
 	Market    string         `gorm:"not null;size:20;default:'A-share'" json:"market"` // A-share, HK-stock, US-stock, Fund
+	IsPublic  bool           `gorm:"not null;default:false" json:"isPublic"`
 	Holdings  []Holding      `gorm:"many2many:holding_combos;constraint:OnDelete:CASCADE;" json:"holdings,omitempty"`
 }
 

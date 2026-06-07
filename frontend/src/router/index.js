@@ -36,6 +36,16 @@ const routes = [
         path: 'import-export',
         name: 'ImportExport',
         component: ImportExport
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: () => import('../views/Users.vue')
+      },
+      {
+        path: 'public-market',
+        name: 'PublicMarket',
+        component: () => import('../views/PublicMarket.vue')
       }
     ]
   },

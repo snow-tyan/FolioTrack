@@ -46,6 +46,7 @@ services:
       - DB_DSN=root:rootpass@tcp(db:3306)/foliotrack?charset=utf8mb4&parseTime=True&loc=Local
       - JWT_SECRET=foliotrack-super-secret-key-change-in-prod
       - REDIS_ADDR=redis:6379
+      - ADMIN_PASSWORD=admin123
     depends_on:
       db:
         condition: service_healthy

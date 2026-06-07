@@ -1,13 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"foliotrack/config"
 	"foliotrack/models"
 	"foliotrack/routes"
 	"log"
+	"os"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -72,6 +75,30 @@ func main() {
 		log.Fatalf("Fatal: AutoMigrate failed: %v", err)
 	}
 	log.Println("Database migration completed.")
+
+	// Seed super admin user if not exists
+	var adminUser models.User
+	err = db.Where("username = ?", "admin").First(&adminUser).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Println("Seeding super administrator 'admin'...")
+		adminPassword := os.Getenv("ADMIN_PASSWORD")
+		if adminPassword == "" {
+			adminPassword = "admin123"
+		}
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+		if err != nil {
+			log.Fatalf("Fatal: Failed to hash admin password: %v", err)
+		}
+		adminUser = models.User{
+			Username:     "admin",
+			PasswordHash: string(hashedPassword),
+			Role:         "admin",
+		}
+		if err := db.Create(&adminUser).Error; err != nil {
+			log.Fatalf("Fatal: Failed to seed admin user: %v", err)
+		}
+		log.Println("Super administrator 'admin' seeded successfully.")
+	}
 
 	// 5. Setup Router
 	r := routes.SetupRouter()

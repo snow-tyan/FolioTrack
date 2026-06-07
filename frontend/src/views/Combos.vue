@@ -5,12 +5,20 @@
         <h3>组合列表与属性配置</h3>
         <p>自定义投资组合（标签），用于将不同股票和基金归类。云图支持切换到以组合分组的模式查看占比。</p>
       </div>
-      <el-button type="primary" icon="Plus" size="small" @click="openAddDialog">
-        新建组合
-      </el-button>
+      <div class="header-actions-row">
+        <el-select v-model="marketFilter" placeholder="过滤市场" size="small" clearable style="width: 120px;">
+          <el-option value="A-share" label="A股" />
+          <el-option value="HK-stock" label="港股" />
+          <el-option value="US-stock" label="美股" />
+          <el-option value="Fund" label="基金" />
+        </el-select>
+        <el-button type="primary" icon="Plus" size="small" @click="openAddDialog">
+          新建组合
+        </el-button>
+      </div>
     </div>
 
-    <el-table :data="combos" v-loading="loading" style="width: 100%">
+    <el-table :data="filteredCombos" v-loading="loading" style="width: 100%">
       <!-- Color dot -->
       <el-table-column label="标识颜色" width="100" align="center">
         <template #default="scope">
@@ -44,6 +52,15 @@
         </template>
       </el-table-column>
 
+      <!-- Public column -->
+      <el-table-column label="共享" width="100" align="center">
+        <template #default="scope">
+          <el-tag size="small" :type="scope.row.isPublic ? 'success' : 'info'" effect="dark">
+            {{ scope.row.isPublic ? '公开' : '私有' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
       <!-- Actions -->
       <el-table-column label="操作" width="180" align="center">
         <template #default="scope">
@@ -59,6 +76,8 @@
       :title="isEdit ? '编辑组合' : '创建新组合'"
       width="400px"
       destroy-on-close
+      align-center
+      append-to-body
     >
       <el-form :model="form" :rules="formRules" ref="formRef" label-position="top">
         <el-form-item label="所属市场" prop="market">
@@ -80,6 +99,10 @@
             <span class="color-preview font-outfit">{{ form.color }}</span>
           </div>
         </el-form-item>
+
+        <el-form-item label="公开共享" prop="isPublic">
+          <el-switch v-model="form.isPublic" active-text="公开此组合" inactive-text="仅私有" />
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -93,7 +116,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
 
@@ -104,11 +127,21 @@ const isEdit = ref(false)
 const submitLoading = ref(false)
 const currentComboId = ref(null)
 
+const marketFilter = ref('')
+
+const filteredCombos = computed(() => {
+  if (!marketFilter.value) {
+    return combos.value
+  }
+  return combos.value.filter((c) => c.market === marketFilter.value)
+})
+
 const formRef = ref(null)
 const form = reactive({
   name: '',
   color: '#409EFF',
-  market: 'A-share'
+  market: 'A-share',
+  isPublic: false
 })
 
 const formRules = {
@@ -179,6 +212,7 @@ const openAddDialog = () => {
   form.name = ''
   form.color = '#409EFF'
   form.market = 'A-share'
+  form.isPublic = false
 }
 
 const openEditDialog = (row) => {
@@ -188,6 +222,7 @@ const openEditDialog = (row) => {
   form.name = row.name
   form.color = row.color
   form.market = row.market || 'A-share'
+  form.isPublic = row.isPublic || false
 }
 
 const submitForm = () => {
@@ -310,5 +345,11 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.header-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 </style>
