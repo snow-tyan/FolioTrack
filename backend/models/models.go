@@ -30,6 +30,15 @@ type Asset struct {
 	LastUpdated  time.Time      `json:"lastUpdated"`
 }
 
+// BeforeSave GORM hook to prevent zero time.Time MySQL error 1292
+func (a *Asset) BeforeSave(tx *gorm.DB) (err error) {
+	if a.LastUpdated.IsZero() {
+		a.LastUpdated = time.Unix(0, 0)
+	}
+	return nil
+}
+
+
 type Holding struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time      `json:"createdAt"`
