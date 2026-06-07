@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type redisPriceCache struct {
@@ -189,7 +191,7 @@ func FetchPricesFromSina(sinaSymbols []string) (map[string]PriceInfo, error) {
 
 // UpdateAssetPrices fetches and updates asset prices in the database.
 // Supports caching: assets updated within the last cacheDuration are skipped.
-func UpdateAssetPrices(assets []*models.Asset, force bool) error {
+func UpdateAssetPrices(db *gorm.DB, assets []*models.Asset, force bool, skipRedis bool) error {
 	if len(assets) == 0 {
 		return nil
 	}
@@ -206,8 +208,8 @@ func UpdateAssetPrices(assets []*models.Asset, force bool) error {
 
 	for _, asset := range assets {
 		redisCached := false
-		// Try Redis first if force is false and Redis is active
-		if !force && models.RedisClient != nil {
+		// Try Redis first if force is false, Redis is active, and we're not skipping Redis
+		if !force && !skipRedis && models.RedisClient != nil {
 			redisKey := fmt.Sprintf("foliotrack:price:%s:%s", asset.Market, asset.Symbol)
 			val, err := models.RedisClient.Get(ctx, redisKey).Result()
 			if err == nil && val != "" {
@@ -262,11 +264,11 @@ func UpdateAssetPrices(assets []*models.Asset, force bool) error {
 				asset.PrevClose = priceInfo.PrevClose
 				asset.LastUpdated = now
 
-				// Save to DB
-				models.DB.Save(asset)
+				// Save to DB using the transactional db reference
+				db.Save(asset)
 
-				// Cache in Redis
-				if models.RedisClient != nil {
+				// Cache in Redis (unless skipRedis is set)
+				if !skipRedis && models.RedisClient != nil {
 					redisKey := fmt.Sprintf("foliotrack:price:%s:%s", asset.Market, asset.Symbol)
 					cacheVal := redisPriceCache{
 						Name:         priceInfo.Name,
@@ -282,6 +284,34 @@ func UpdateAssetPrices(assets []*models.Asset, force bool) error {
 	}
 
 	return nil
+}
+
+// WriteAssetsToRedis directly writes a list of assets to the Redis cache
+func WriteAssetsToRedis(assets []*models.Asset) {
+	if models.RedisClient == nil || len(assets) == 0 {
+		return
+	}
+
+	ctx := context.Background()
+	cacheDuration := 1 * time.Minute
+
+	for _, asset := range assets {
+		// Only write if name is valid
+		if asset.Name == "" || asset.CurrentPrice <= 0 {
+			continue
+		}
+
+		redisKey := fmt.Sprintf("foliotrack:price:%s:%s", asset.Market, asset.Symbol)
+		cacheVal := redisPriceCache{
+			Name:         asset.Name,
+			CurrentPrice: asset.CurrentPrice,
+			PrevClose:    asset.PrevClose,
+		}
+
+		if cacheBytes, err := json.Marshal(cacheVal); err == nil {
+			_ = models.RedisClient.Set(ctx, redisKey, cacheBytes, cacheDuration).Err()
+		}
+	}
 }
 
 // FetchIndexData fetches index ticker data for SSE, HSI, DJI, NASDAQ

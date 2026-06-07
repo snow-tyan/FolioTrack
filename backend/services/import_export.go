@@ -86,8 +86,10 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 		return err
 	}
 
+	var importedAssets []*models.Asset
+
 	// Transaction to import rows
-	return models.DB.Transaction(func(tx *gorm.DB) error {
+	err = models.DB.Transaction(func(tx *gorm.DB) error {
 		for i, row := range rows {
 			symbol := strings.TrimSpace(row[headerMap["symbol"]])
 			market := strings.TrimSpace(row[headerMap["market"]])
@@ -120,8 +122,8 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 				if err := tx.Create(&asset).Error; err != nil {
 					return err
 				}
-				// Fetch metadata from Sina immediately
-				_ = UpdateAssetPrices([]*models.Asset{&asset}, true)
+				// Fetch metadata from Sina immediately using the transaction, skipping immediate Redis write
+				_ = UpdateAssetPrices(tx, []*models.Asset{&asset}, true, true)
 			} else if err != nil {
 				return err
 			}
@@ -195,9 +197,19 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 					}
 				}
 			}
+
+			// Collect processed assets for deferred Redis caching
+			importedAssets = append(importedAssets, &asset)
 		}
 		return nil
 	})
+
+	if err == nil {
+		// Only write to Redis after the entire transaction commits successfully
+		WriteAssetsToRedis(importedAssets)
+	}
+
+	return err
 }
 
 // Helper to generate consistent colors based on combo name

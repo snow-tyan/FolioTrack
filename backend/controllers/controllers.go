@@ -148,7 +148,7 @@ func ListHoldings(c *gin.Context) {
 
 	// Fetch & update prices dynamically (with 1-min caching inside the service)
 	if len(assetsToUpdate) > 0 {
-		_ = services.UpdateAssetPrices(assetsToUpdate, false)
+		_ = services.UpdateAssetPrices(models.DB, assetsToUpdate, false, false)
 	}
 
 	// Re-assign updated assets back to response
@@ -194,8 +194,8 @@ func CreateHolding(c *gin.Context) {
 			if err := tx.Create(&asset).Error; err != nil {
 				return err
 			}
-			// Fetch price immediately
-			_ = services.UpdateAssetPrices([]*models.Asset{&asset}, true)
+			// Fetch price immediately using the transaction
+			_ = services.UpdateAssetPrices(tx, []*models.Asset{&asset}, true, false)
 		} else if err != nil {
 			return err
 		}
