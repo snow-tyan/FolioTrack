@@ -28,6 +28,15 @@
         </template>
       </el-table-column>
 
+      <!-- Market Tag -->
+      <el-table-column label="所属市场" width="120">
+        <template #default="scope">
+          <el-tag :type="getMarketTagType(scope.row.market)" size="small" effect="dark">
+            {{ getMarketName(scope.row.market) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
       <!-- Creation Date -->
       <el-table-column label="创建时间" min-width="150">
         <template #default="scope">
@@ -52,6 +61,15 @@
       destroy-on-close
     >
       <el-form :model="form" :rules="formRules" ref="formRef" label-position="top">
+        <el-form-item label="所属市场" prop="market">
+          <el-select v-model="form.market" placeholder="请选择组合所属市场" :disabled="isEdit" style="width: 100%;">
+            <el-option value="A-share" label="A股" />
+            <el-option value="HK-stock" label="港股" />
+            <el-option value="US-stock" label="美股" />
+            <el-option value="Fund" label="基金" />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="组合名称" prop="name">
           <el-input v-model="form.name" placeholder="例如: 科技板块, 股息组合, 核心资产" />
         </el-form-item>
@@ -89,13 +107,17 @@ const currentComboId = ref(null)
 const formRef = ref(null)
 const form = reactive({
   name: '',
-  color: '#409EFF'
+  color: '#409EFF',
+  market: 'A-share'
 })
 
 const formRules = {
   name: [
     { required: true, message: '请输入组合名称', trigger: 'blur' },
     { max: 50, message: '不能超过 50 个字符', trigger: 'blur' }
+  ],
+  market: [
+    { required: true, message: '请选择所属市场', trigger: 'change' }
   ]
 }
 
@@ -131,11 +153,32 @@ const formatDate = (dateStr) => {
   return d.toLocaleString('zh-CN', { hour12: false })
 }
 
+const getMarketName = (market) => {
+  const names = {
+    'A-share': 'A股',
+    'HK-stock': '港股',
+    'US-stock': '美股',
+    'Fund': '基金'
+  }
+  return names[market] || market
+}
+
+const getMarketTagType = (market) => {
+  const types = {
+    'A-share': 'warning',
+    'HK-stock': 'primary',
+    'US-stock': 'danger',
+    'Fund': 'success'
+  }
+  return types[market] || 'info'
+}
+
 const openAddDialog = () => {
   isEdit.value = false
   dialogVisible.value = true
   form.name = ''
   form.color = '#409EFF'
+  form.market = 'A-share'
 }
 
 const openEditDialog = (row) => {
@@ -144,6 +187,7 @@ const openEditDialog = (row) => {
   dialogVisible.value = true
   form.name = row.name
   form.color = row.color
+  form.market = row.market || 'A-share'
 }
 
 const submitForm = () => {

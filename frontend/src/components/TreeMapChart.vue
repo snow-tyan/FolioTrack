@@ -42,10 +42,10 @@ const viewMode = ref('market') // 'market' or 'combo'
 
 // Format market names
 const marketNames = {
-  'A-share': '中国A股',
-  'HK-stock': '香港港股',
-  'US-stock': '美国美股',
-  'Fund': '中国基金'
+  'A-share': 'A股',
+  'HK-stock': '港股',
+  'US-stock': '美股',
+  'Fund': '基金'
 }
 
 // Compute P&L percentage for a holding
@@ -112,13 +112,14 @@ const buildChartData = () => {
       }
 
       const pnlPct = getHoldingPnlPct(h)
-      // Assign distinct rotating colors for adjacent items in the same market block
       const colorIndex = groups[market].length
       const color = highContrastPalette[colorIndex % highContrastPalette.length]
+      const comboNames = h.combos ? h.combos.map((c) => c.name) : []
 
       groups[market].push({
         name: `${h.asset ? h.asset.name : h.assetId}\n${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
         value: val,
+        combos: comboNames,
         itemStyle: {
           color: color
         },
@@ -163,7 +164,6 @@ const buildChartData = () => {
       }
     })
 
-    // Map each group name to a specific rotating color to keep adjacent combo groups distinct
     const comboNames = Object.keys(comboHoldings).sort()
     const comboColorMap = {}
     comboNames.forEach((cName, idx) => {
@@ -174,17 +174,21 @@ const buildChartData = () => {
       const groupColor = comboColorMap[cName]
       return {
         name: cName,
-        children: comboHoldings[cName].map((node) => ({
-          name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
-          value: node.value,
-          itemStyle: {
-            color: groupColor
-          },
-          label: {
-            show: true,
-            formatter: `{b}`
+        children: comboHoldings[cName].map((node) => {
+          const comboNames = node.h.combos ? node.h.combos.map((c) => c.name) : []
+          return {
+            name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
+            value: node.value,
+            combos: comboNames,
+            itemStyle: {
+              color: groupColor
+            },
+            label: {
+              show: true,
+              formatter: `{b}`
+            }
           }
-        }))
+        })
       }
     })
 
@@ -192,17 +196,21 @@ const buildChartData = () => {
       const unclassifiedColor = highContrastPalette[comboNames.length % highContrastPalette.length]
       chartData.push({
         name: '未分类组合',
-        children: unclassified.map((node) => ({
-          name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
-          value: node.value,
-          itemStyle: {
-            color: unclassifiedColor
-          },
-          label: {
-            show: true,
-            formatter: `{b}`
+        children: unclassified.map((node) => {
+          const comboNames = node.h.combos ? node.h.combos.map((c) => c.name) : []
+          return {
+            name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
+            value: node.value,
+            combos: comboNames,
+            itemStyle: {
+              color: unclassifiedColor
+            },
+            label: {
+              show: true,
+              formatter: `{b}`
+            }
           }
-        }))
+        })
       })
     }
 
@@ -213,7 +221,7 @@ const buildChartData = () => {
 const renderChart = () => {
   if (!chartRef.value) return
 
-  const isLightTheme = props.theme === 'light-ice'
+  const isLightTheme = props.theme === 'light-classic'
   const chartTheme = isLightTheme ? null : 'dark'
 
   if (!chartInstance) {
@@ -222,6 +230,17 @@ const renderChart = () => {
 
   const data = buildChartData()
 
+  // Calculate total valuation of currently displayed holdings
+  const baseRate = getBaseCurrencyRate(props.baseCurrency, props.holdings)
+  let totalValue = 0
+  props.holdings.forEach((h) => {
+    const assetRate = h.asset ? (h.asset.exchangeRate || 1.0) : 1.0
+    const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (assetRate / baseRate)
+    if (val > 0) {
+      totalValue += val
+    }
+  })
+
   const labelColor = isLightTheme ? '#1f2937' : '#ffffff'
   const borderColor = isLightTheme ? '#ffffff' : '#111622'
 
@@ -229,13 +248,37 @@ const renderChart = () => {
     backgroundColor: 'transparent',
     tooltip: {
       formatter: function (info) {
+        if (!info.data || !info.data.combos) {
+          return `<div style="font-family: 'Outfit', sans-serif; padding: 4px;"><strong>${info.name}</strong></div>`
+        }
+
         const value = info.value
         const name = info.name.split('\n')[0]
         const symbol = getCurrencySymbol(props.baseCurrency)
+        
+        // Calculate holding percentage
+        const pct = totalValue > 0 ? (value / totalValue) * 100 : 0
+        
+        // Calculate group (combo) total percentage of the entire portfolio when grouping by combo
+        let groupPctStr = ''
+        if (viewMode.value === 'combo' && info.treePathInfo && info.treePathInfo.length > 2) {
+          const totalVal = info.treePathInfo[0].value
+          const groupVal = info.treePathInfo[1].value
+          if (totalVal > 0) {
+            const groupPct = (groupVal / totalVal) * 100
+            groupPctStr = `<span style="color: #9ca3af;">当前组合占比:</span> <span style="font-weight: 600;">${groupPct.toFixed(2)}%</span><br/>`
+          }
+        }
+
+        const combosStr = info.data.combos.length > 0 ? info.data.combos.join(', ') : '无'
+
         return [
-          `<div style="font-family: 'Outfit', sans-serif; padding: 4px;">`,
-          `<strong style="font-size: 14px;">${name}</strong><br/>`,
-          `市值: ${symbol} ${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
+          `<div style="font-family: 'Outfit', sans-serif; padding: 6px; line-height: 1.6;">`,
+          `<strong style="font-size: 14px; color: #ffffff;">${name}</strong><br/>`,
+          `<span style="color: #9ca3af;">当前市值:</span> <span style="font-weight: 600;">${symbol} ${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span><br/>`,
+          `<span style="color: #9ca3af;">总持仓占比:</span> <span style="font-weight: 600;">${pct.toFixed(2)}%</span><br/>`,
+          groupPctStr,
+          `<span style="color: #9ca3af;">所属组合:</span> <span style="font-weight: 600;">${combosStr}</span>`,
           `</div>`
         ].join('')
       }
@@ -348,6 +391,13 @@ onUnmounted(() => {
 
 .treemap-chart {
   width: 100%;
-  height: 380px;
+  height: 520px;
+  transition: height 0.3s ease;
+}
+
+@media (max-width: 768px) {
+  .treemap-chart {
+    height: 380px;
+  }
 }
 </style>

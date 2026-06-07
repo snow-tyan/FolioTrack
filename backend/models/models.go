@@ -64,6 +64,7 @@ type Combo struct {
 	UserID    uint           `gorm:"not null" json:"userId"`
 	Name      string         `gorm:"not null;size:50" json:"name"`
 	Color     string         `gorm:"size:20" json:"color"` // e.g. "#409EFF"
+	Market    string         `gorm:"not null;size:20;default:'A-share'" json:"market"` // A-share, HK-stock, US-stock, Fund
 	Holdings  []Holding      `gorm:"many2many:holding_combos;constraint:OnDelete:CASCADE;" json:"holdings,omitempty"`
 }
 

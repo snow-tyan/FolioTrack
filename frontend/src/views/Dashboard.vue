@@ -58,11 +58,15 @@
           <!-- Theme Switch -->
           <div class="setting-item">
             <span class="setting-label">视觉主题</span>
-            <el-select v-model="theme" size="small" style="width: 140px;" @change="handleThemeChange">
+            <el-select v-model="theme" size="small" style="width: 160px;" @change="handleThemeChange">
               <el-option value="dark-indigo" label="深邃星海 (靛蓝)" />
               <el-option value="dark-emerald" label="翡翠森林 (深绿)" />
               <el-option value="dark-rose" label="赛博霓虹 (玫红)" />
-              <el-option value="light-ice" label="极地白 (冰蓝)" />
+              <el-option value="light-classic" label="温润雅白 (亮色)" />
+              <el-option value="dark-amoled" label="曜石纯黑 (暗色)" />
+              <el-option value="high-contrast" label="极客黑白 (对比)" />
+              <el-option value="nordic-frost" label="北欧极寒 (冷蓝)" />
+              <el-option value="coffee-mocha" label="香醇摩卡 (秋棕)" />
             </el-select>
           </div>
 
@@ -113,10 +117,19 @@ let timer = null
 
 const applyTheme = (newTheme) => {
   const root = document.documentElement
-  root.classList.remove('theme-dark-indigo', 'theme-dark-emerald', 'theme-dark-rose', 'theme-light-ice')
+  root.classList.remove(
+    'theme-dark-indigo',
+    'theme-dark-emerald',
+    'theme-dark-rose',
+    'theme-light-classic',
+    'theme-dark-amoled',
+    'theme-high-contrast',
+    'theme-nordic-frost',
+    'theme-coffee-mocha'
+  )
   root.classList.add(`theme-${newTheme}`)
 
-  if (newTheme === 'light-ice') {
+  if (newTheme === 'light-classic') {
     root.classList.remove('dark')
   } else {
     root.classList.add('dark')

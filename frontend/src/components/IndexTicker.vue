@@ -69,7 +69,7 @@ onUnmounted(() => {
   margin-bottom: 20px;
   overflow: hidden;
   border-radius: 12px;
-  background: rgba(22, 28, 41, 0.4);
+  background: var(--card-bg);
   height: 38px;
   display: flex;
   align-items: center;

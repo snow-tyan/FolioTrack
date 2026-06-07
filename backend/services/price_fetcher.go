@@ -28,7 +28,7 @@ func GetSinaSymbol(symbol string, market string) string {
 	case "A-share":
 		if len(symbol) == 6 {
 			// Shanghai
-			if symbol[0] == '6' || symbol[0] == '9' || (symbol[0] == '7' && symbol[1] == '0') {
+			if symbol[0] == '6' || (symbol[0] == '9' && symbol[1] != '2') || (symbol[0] == '7' && symbol[1] == '0') {
 				return "sh" + symbol
 			}
 			// Shenzhen
@@ -36,7 +36,7 @@ func GetSinaSymbol(symbol string, market string) string {
 				return "sz" + symbol
 			}
 			// Beijing
-			if symbol[0] == '8' || symbol[0] == '4' {
+			if symbol[0] == '8' || symbol[0] == '4' || (symbol[0] == '9' && symbol[1] == '2') {
 				return "bj" + symbol
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"foliotrack/models"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,139 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 		return nil, err
 	}
 
+	// 1. Fetch live prices & exchange rates to get accurate valuations for sorting
+	var assets []*models.Asset
+	assetMap := make(map[uint]*models.Asset)
+	for i := range holdings {
+		h := &holdings[i]
+		if _, ok := assetMap[h.AssetID]; !ok {
+			assetMap[h.AssetID] = &h.Asset
+			assets = append(assets, &h.Asset)
+		}
+	}
+	if len(assets) > 0 {
+		_ = UpdateAssetPrices(models.DB, assets, false, false)
+		PopulateAssetCurrencyAndRates(assets)
+	}
+	// Re-assign updated assets back to holdings
+	for i := range holdings {
+		h := &holdings[i]
+		if updated, ok := assetMap[h.AssetID]; ok {
+			h.Asset = *updated
+		}
+	}
+
+	// 2. Prepare items for sorting
+	type exportHoldingSortItem struct {
+		holding      models.Holding
+		valCNY       float64
+		primaryCombo string
+	}
+
+	var sortItems []exportHoldingSortItem
+	for _, h := range holdings {
+		valCNY := h.Quantity * h.Asset.CurrentPrice * h.Asset.ExchangeRate
+
+		primaryCombo := ""
+		if len(h.Combos) > 0 {
+			// Sort combos of the holding by name to be deterministic
+			sort.Slice(h.Combos, func(i, j int) bool {
+				return h.Combos[i].Name < h.Combos[j].Name
+			})
+			primaryCombo = h.Combos[0].Name
+		}
+
+		sortItems = append(sortItems, exportHoldingSortItem{
+			holding:      h,
+			valCNY:       valCNY,
+			primaryCombo: primaryCombo,
+		})
+	}
+
+	// 3. Group by Market
+	marketGroups := make(map[string][]exportHoldingSortItem)
+	var markets []string
+	marketSeen := make(map[string]bool)
+
+	for _, item := range sortItems {
+		m := item.holding.Asset.Market
+		marketGroups[m] = append(marketGroups[m], item)
+		if !marketSeen[m] {
+			marketSeen[m] = true
+			markets = append(markets, m)
+		}
+	}
+
+	// Sort markets: A-share -> Fund -> HK-stock -> US-stock -> others
+	marketOrder := map[string]int{
+		"A-share":  1,
+		"Fund":     2,
+		"HK-stock": 3,
+		"US-stock": 4,
+	}
+	sort.Slice(markets, func(i, j int) bool {
+		ordI, okI := marketOrder[markets[i]]
+		ordJ, okJ := marketOrder[markets[j]]
+		if okI && okJ {
+			return ordI < ordJ
+		}
+		if okI {
+			return true
+		}
+		if okJ {
+			return false
+		}
+		return markets[i] < markets[j]
+	})
+
+	// 4. Sort holdings in each market group
+	var sortedItems []exportHoldingSortItem
+	for _, m := range markets {
+		items := marketGroups[m]
+
+		// Calculate total valuation for each primary combo in this market
+		comboValuations := make(map[string]float64)
+		for _, item := range items {
+			if item.primaryCombo != "" {
+				comboValuations[item.primaryCombo] += item.valCNY
+			}
+		}
+
+		sort.Slice(items, func(i, j int) bool {
+			itemI := items[i]
+			itemJ := items[j]
+
+			// Group by primary combo: same combos together
+			if itemI.primaryCombo != "" && itemJ.primaryCombo != "" {
+				if itemI.primaryCombo == itemJ.primaryCombo {
+					// Within the same combo, sort by individual holding valuation descending
+					return itemI.valCNY > itemJ.valCNY
+				}
+				// Different combos: sort by total combo valuation descending
+				valI := comboValuations[itemI.primaryCombo]
+				valJ := comboValuations[itemJ.primaryCombo]
+				if valI != valJ {
+					return valI > valJ
+				}
+				return itemI.primaryCombo < itemJ.primaryCombo
+			}
+
+			// If one has no combo, put it at the end of the combos
+			if itemI.primaryCombo != "" && itemJ.primaryCombo == "" {
+				return true
+			}
+			if itemI.primaryCombo == "" && itemJ.primaryCombo != "" {
+				return false
+			}
+
+			// Both have no combo: sort by individual holding valuation descending
+			return itemI.valCNY > itemJ.valCNY
+		})
+
+		sortedItems = append(sortedItems, items...)
+	}
+
+	// 5. Generate CSV output
 	buf := new(bytes.Buffer)
 	writer := csv.NewWriter(buf)
 
@@ -33,7 +167,8 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 		return nil, err
 	}
 
-	for _, h := range holdings {
+	for _, item := range sortedItems {
+		h := item.holding
 		var comboNames []string
 		for _, c := range h.Combos {
 			comboNames = append(comboNames, c.Name)
@@ -172,7 +307,7 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 						}
 
 						var combo models.Combo
-						err = tx.Where("user_id = ? AND name = ?", userID, cName).First(&combo).Error
+						err = tx.Where("user_id = ? AND name = ? AND market = ?", userID, cName, asset.Market).First(&combo).Error
 						if errors.Is(err, gorm.ErrRecordNotFound) {
 							// Assign a random/distinct color for newly created combo
 							color := getRandomColor(cName)
@@ -180,6 +315,7 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 								UserID: userID,
 								Name:   cName,
 								Color:  color,
+								Market: asset.Market,
 							}
 							if err := tx.Create(&combo).Error; err != nil {
 								return err

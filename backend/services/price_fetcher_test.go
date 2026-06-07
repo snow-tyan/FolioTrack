@@ -14,6 +14,7 @@ func TestGetSinaSymbol(t *testing.T) {
 		{"600519", "A-share", "sh600519"},
 		{"000001", "A-share", "sz000001"},
 		{"830946", "A-share", "bj830946"},
+		{"920403", "A-share", "bj920403"},
 		{"00700", "HK-stock", "rt_hk00700"},
 		{"700", "HK-stock", "rt_hk00700"},
 		{"AAPL", "US-stock", "gb_aapl"},

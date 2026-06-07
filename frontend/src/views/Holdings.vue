@@ -7,7 +7,7 @@
     <MetricCards :holdings="filteredHoldings" :color-convention="colorConvention" :base-currency="baseCurrency" />
 
     <!-- TreeMap Chart -->
-    <TreeMapChart :holdings="holdings" :color-convention="colorConvention" :theme="theme" :base-currency="baseCurrency" />
+    <TreeMapChart :holdings="filteredHoldings" :color-convention="colorConvention" :theme="theme" :base-currency="baseCurrency" />
 
     <!-- Holdings Table Section -->
     <div class="table-container glass-panel">
@@ -18,14 +18,14 @@
             <el-input v-model="searchQuery" placeholder="搜索名称 / 代码" prefix-icon="Search" size="small" clearable style="width: 180px;" />
             
             <el-select v-model="marketFilter" placeholder="过滤市场" size="small" clearable style="width: 120px;">
-              <el-option value="A-share" label="中国A股" />
-              <el-option value="HK-stock" label="香港港股" />
-              <el-option value="US-stock" label="美国美股" />
-              <el-option value="Fund" label="中国基金" />
+              <el-option value="A-share" label="A股" />
+              <el-option value="HK-stock" label="港股" />
+              <el-option value="US-stock" label="美股" />
+              <el-option value="Fund" label="基金" />
             </el-select>
 
             <el-select v-model="comboFilter" placeholder="过滤组合" size="small" clearable style="width: 120px;">
-              <el-option v-for="combo in combos" :key="combo.id" :value="combo.id" :label="combo.name" />
+              <el-option v-for="combo in filteredCombos" :key="combo.id" :value="combo.id" :label="combo.name" />
             </el-select>
           </div>
         </div>
@@ -149,10 +149,10 @@
 
         <el-form-item label="资产市场" prop="market">
           <el-select v-model="form.market" placeholder="选择资产所在市场" :disabled="isEdit" style="width: 100%;">
-            <el-option value="A-share" label="中国A股" />
-            <el-option value="HK-stock" label="香港港股" />
-            <el-option value="US-stock" label="美国美股" />
-            <el-option value="Fund" label="中国基金" />
+            <el-option value="A-share" label="A股" />
+            <el-option value="HK-stock" label="港股" />
+            <el-option value="US-stock" label="美股" />
+            <el-option value="Fund" label="基金" />
           </el-select>
         </el-form-item>
 
@@ -166,7 +166,7 @@
 
         <el-form-item label="归属组合" prop="comboIds">
           <el-select v-model="form.comboIds" multiple placeholder="可选择多个关联组合" style="width: 100%;">
-            <el-option v-for="combo in combos" :key="combo.id" :value="combo.id" :label="combo.name" />
+            <el-option v-for="combo in dialogFilteredCombos" :key="combo.id" :value="combo.id" :label="combo.name" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -182,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
 import IndexTicker from '../components/IndexTicker.vue'
@@ -232,6 +232,38 @@ const formRules = {
   costPrice: [{ required: true, message: '请输入持仓均价', trigger: 'blur' }]
 }
 
+// Filtered combos based on selected market filter
+const filteredCombos = computed(() => {
+  if (!marketFilter.value) {
+    return combos.value
+  }
+  return combos.value.filter((c) => c.market === marketFilter.value)
+})
+
+// Filtered combos in add/edit dialog based on form.market
+const dialogFilteredCombos = computed(() => {
+  return combos.value.filter((c) => c.market === form.market)
+})
+
+// Watchers for resetting / filtering combo choices when market changes
+watch(marketFilter, (newMarket) => {
+  if (newMarket && comboFilter.value) {
+    const selectedCombo = combos.value.find((c) => c.id === comboFilter.value)
+    if (selectedCombo && selectedCombo.market !== newMarket) {
+      comboFilter.value = ''
+    }
+  }
+})
+
+watch(() => form.market, (newMarket) => {
+  if (form.comboIds && form.comboIds.length > 0) {
+    form.comboIds = form.comboIds.filter((id) => {
+      const combo = combos.value.find((c) => c.id === id)
+      return combo && combo.market === newMarket
+    })
+  }
+})
+
 const fetchHoldings = async () => {
   loading.value = true
   try {
@@ -255,7 +287,7 @@ const fetchCombos = async () => {
 
 // Filtered Holdings computed property
 const filteredHoldings = computed(() => {
-  return holdings.value.filter((h) => {
+  const list = holdings.value.filter((h) => {
     // 1. Search Query filter (match symbol or name)
     const matchSearch = searchQuery.value
       ? (h.asset && (
@@ -276,6 +308,54 @@ const filteredHoldings = computed(() => {
 
     return matchSearch && matchMarket && matchCombo
   })
+
+  // Sort by combos: keep identical combos together, with larger combo total valuation first
+  const items = list.map((h) => {
+    const qty = h.quantity || 0
+    const price = h.asset ? (h.asset.currentPrice || 0) : 0
+    const rate = h.asset ? (h.asset.exchangeRate || 1.0) : 1.0
+    const valCNY = qty * price * rate
+
+    let primaryCombo = ""
+    if (h.combos && h.combos.length > 0) {
+      const sortedCombos = [...h.combos].sort((c1, c2) => c1.name.localeCompare(c2.name))
+      primaryCombo = sortedCombos[0].name
+    }
+
+    return {
+      holding: h,
+      valCNY,
+      primaryCombo
+    }
+  })
+
+  const comboValuations = {}
+  items.forEach((item) => {
+    if (item.primaryCombo) {
+      comboValuations[item.primaryCombo] = (comboValuations[item.primaryCombo] || 0) + item.valCNY
+    }
+  })
+
+  items.sort((a, b) => {
+    if (a.primaryCombo && b.primaryCombo) {
+      if (a.primaryCombo === b.primaryCombo) {
+        return b.valCNY - a.valCNY
+      }
+      const valA = comboValuations[a.primaryCombo]
+      const valB = comboValuations[b.primaryCombo]
+      if (valA !== valB) {
+        return valB - valA
+      }
+      return a.primaryCombo.localeCompare(b.primaryCombo)
+    }
+
+    if (a.primaryCombo && !b.primaryCombo) return -1
+    if (!a.primaryCombo && b.primaryCombo) return 1
+
+    return b.valCNY - a.valCNY
+  })
+
+  return items.map(item => item.holding)
 })
 
 const getPnlVal = (h) => {
@@ -341,10 +421,10 @@ const getPnlClass = (val) => {
 
 const getMarketName = (market) => {
   const names = {
-    'A-share': '中国A股',
-    'HK-stock': '香港港股',
-    'US-stock': '美国美股',
-    'Fund': '中国基金'
+    'A-share': 'A股',
+    'HK-stock': '港股',
+    'US-stock': '美股',
+    'Fund': '基金'
   }
   return names[market] || market
 }

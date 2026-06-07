@@ -328,8 +328,9 @@ func DeleteHolding(c *gin.Context) {
 // === COMBO CONTROLLER ===
 
 type ComboInput struct {
-	Name  string `json:"name" binding:"required,min=1,max=50"`
-	Color string `json:"color"`
+	Name   string `json:"name" binding:"required,min=1,max=50"`
+	Color  string `json:"color"`
+	Market string `json:"market"`
 }
 
 func ListCombos(c *gin.Context) {
@@ -358,10 +359,16 @@ func CreateCombo(c *gin.Context) {
 		color = "#409EFF" // Default Blue
 	}
 
+	market := input.Market
+	if market == "" {
+		market = "A-share" // Default fallback
+	}
+
 	combo := models.Combo{
 		UserID: userID.(uint),
 		Name:   input.Name,
 		Color:  color,
+		Market: market,
 	}
 
 	if err := models.DB.Create(&combo).Error; err != nil {
@@ -397,6 +404,9 @@ func UpdateCombo(c *gin.Context) {
 	combo.Name = input.Name
 	if input.Color != "" {
 		combo.Color = input.Color
+	}
+	if input.Market != "" {
+		combo.Market = input.Market
 	}
 
 	if err := models.DB.Save(&combo).Error; err != nil {
