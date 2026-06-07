@@ -7,7 +7,7 @@
       </div>
       <div class="card-content">
         <span class="card-title">总资产市值</span>
-        <span class="card-value font-outfit">¥ {{ formatMoney(metrics.totalValue) }}</span>
+        <span class="card-value font-outfit">{{ getCurrencySymbol(baseCurrency) }} {{ formatMoney(metrics.totalValue) }}</span>
       </div>
     </div>
 
@@ -18,7 +18,7 @@
       </div>
       <div class="card-content">
         <span class="card-title">总持仓成本</span>
-        <span class="card-value font-outfit">¥ {{ formatMoney(metrics.totalCost) }}</span>
+        <span class="card-value font-outfit">{{ getCurrencySymbol(baseCurrency) }} {{ formatMoney(metrics.totalCost) }}</span>
       </div>
     </div>
 
@@ -33,7 +33,7 @@
       <div class="card-content">
         <span class="card-title">累计盈亏</span>
         <span class="card-value font-outfit" :class="getPnlTextClass(metrics.cumulativePnl)">
-          {{ metrics.cumulativePnl >= 0 ? '+' : '' }}{{ formatMoney(metrics.cumulativePnl) }}
+          {{ metrics.cumulativePnl >= 0 ? '+' : '-' }}{{ getCurrencySymbol(baseCurrency) }}{{ formatMoney(Math.abs(metrics.cumulativePnl)) }}
         </span>
         <span class="card-sub-info font-outfit" :class="getPnlTextClass(metrics.cumulativePnl)">
           {{ metrics.cumulativePnl >= 0 ? '+' : '' }}{{ formatPercent(metrics.cumulativePnlRatio) }}%
@@ -52,7 +52,7 @@
       <div class="card-content">
         <span class="card-title">今日盈亏</span>
         <span class="card-value font-outfit" :class="getPnlTextClass(metrics.dailyPnl)">
-          {{ metrics.dailyPnl >= 0 ? '+' : '' }}{{ formatMoney(metrics.dailyPnl) }}
+          {{ metrics.dailyPnl >= 0 ? '+' : '-' }}{{ getCurrencySymbol(baseCurrency) }}{{ formatMoney(Math.abs(metrics.dailyPnl)) }}
         </span>
         <span class="card-sub-info font-outfit" :class="getPnlTextClass(metrics.dailyPnl)">
           {{ metrics.dailyPnl >= 0 ? '+' : '' }}{{ formatPercent(metrics.dailyPnlRatio) }}%
@@ -73,6 +73,10 @@ const props = defineProps({
   colorConvention: {
     type: String,
     default: 'CN'
+  },
+  baseCurrency: {
+    type: String,
+    default: 'CNY'
   }
 })
 
@@ -92,6 +96,22 @@ const metrics = computed(() => {
     totalCost += qty * cost * rate
     dailyPnl += qty * (currPrice - prevClose) * rate
   })
+
+  // Convert from CNY to the selected base display currency
+  const getBaseCurrencyRate = (currency, holdings) => {
+    const rates = { CNY: 1.0, USD: 7.20, HKD: 0.92 }
+    holdings.forEach((h) => {
+      if (h.asset && h.asset.currency && h.asset.exchangeRate) {
+        rates[h.asset.currency] = h.asset.exchangeRate
+      }
+    })
+    return rates[currency] || 1.0
+  }
+
+  const baseRate = getBaseCurrencyRate(props.baseCurrency, props.holdings)
+  totalValue = totalValue / baseRate
+  totalCost = totalCost / baseRate
+  dailyPnl = dailyPnl / baseRate
 
   const cumulativePnl = totalValue - totalCost
   const cumulativePnlRatio = totalCost > 0 ? (cumulativePnl / totalCost) * 100 : 0
@@ -113,6 +133,15 @@ const metrics = computed(() => {
 const formatMoney = (val) => {
   if (val === undefined || val === null || isNaN(val)) return '0.00'
   return val.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+const getCurrencySymbol = (currency) => {
+  const symbols = {
+    'CNY': '¥',
+    'USD': '$',
+    'HKD': 'HK$'
+  }
+  return symbols[currency] || '¥'
 }
 
 const formatPercent = (val) => {

@@ -4,10 +4,10 @@
     <IndexTicker :color-convention="colorConvention" />
 
     <!-- Metric Summary Cards -->
-    <MetricCards :holdings="holdings" :color-convention="colorConvention" />
+    <MetricCards :holdings="holdings" :color-convention="colorConvention" :base-currency="baseCurrency" />
 
     <!-- TreeMap Chart -->
-    <TreeMapChart :holdings="holdings" :color-convention="colorConvention" />
+    <TreeMapChart :holdings="holdings" :color-convention="colorConvention" :theme="theme" :base-currency="baseCurrency" />
 
     <!-- Holdings Table Section -->
     <div class="table-container glass-panel">
@@ -83,8 +83,8 @@
               <span class="font-outfit text-white font-bold">
                 {{ getCurrencySymbol(scope.row.asset?.currency) }}{{ formatMoney(scope.row.quantity * (scope.row.asset ? scope.row.asset.currentPrice : 0)) }}
               </span>
-              <span class="sub-cny-val font-outfit" v-if="scope.row.asset && scope.row.asset.currency !== 'CNY'">
-                ≈ ¥{{ formatMoney(scope.row.quantity * scope.row.asset.currentPrice * scope.row.asset.exchangeRate) }}
+              <span class="sub-cny-val font-outfit" v-if="scope.row.asset && scope.row.asset.currency !== baseCurrency">
+                ≈ {{ getCurrencySymbol(baseCurrency) }}{{ formatMoney(scope.row.quantity * scope.row.asset.currentPrice * (scope.row.asset.exchangeRate / baseCurrencyRate)) }}
               </span>
             </div>
           </template>
@@ -98,8 +98,8 @@
                 {{ getPnlVal(scope.row) > 0 ? '+' : (getPnlVal(scope.row) < 0 ? '-' : '') }}{{ getCurrencySymbol(scope.row.asset?.currency) }}{{ formatMoney(Math.abs(getPnlVal(scope.row))) }}
               </span>
               <span class="pnl-pct">{{ getPnlVal(scope.row) > 0 ? '+' : '' }}{{ formatFloat(getPnlPct(scope.row), 2) }}%</span>
-              <span class="sub-cny-val" v-if="scope.row.asset && scope.row.asset.currency !== 'CNY'">
-                ≈ {{ getPnlVal(scope.row) > 0 ? '+' : (getPnlVal(scope.row) < 0 ? '-' : '') }}¥{{ formatMoney(Math.abs(getPnlVal(scope.row) * scope.row.asset.exchangeRate)) }}
+              <span class="sub-cny-val" v-if="scope.row.asset && scope.row.asset.currency !== baseCurrency">
+                ≈ {{ getPnlVal(scope.row) > 0 ? '+' : (getPnlVal(scope.row) < 0 ? '-' : '') }}{{ getCurrencySymbol(baseCurrency) }}{{ formatMoney(Math.abs(getPnlVal(scope.row) * (scope.row.asset.exchangeRate / baseCurrencyRate))) }}
               </span>
             </div>
           </template>
@@ -191,6 +191,14 @@ const props = defineProps({
   colorConvention: {
     type: String,
     default: 'CN'
+  },
+  baseCurrency: {
+    type: String,
+    default: 'CNY'
+  },
+  theme: {
+    type: String,
+    default: 'dark-indigo'
   }
 })
 
@@ -278,6 +286,16 @@ const getPnlPct = (h) => {
   const currPrice = h.asset ? h.asset.currentPrice : 0
   return ((currPrice - h.costPrice) / h.costPrice) * 100
 }
+
+const baseCurrencyRate = computed(() => {
+  const rates = { CNY: 1.0, USD: 7.20, HKD: 0.92 }
+  holdings.value.forEach((h) => {
+    if (h.asset && h.asset.currency && h.asset.exchangeRate) {
+      rates[h.asset.currency] = h.asset.exchangeRate
+    }
+  })
+  return rates[props.baseCurrency] || 1.0
+})
 
 const getCurrencySymbol = (currency) => {
   const symbols = {

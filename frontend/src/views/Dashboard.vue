@@ -43,6 +43,18 @@
       <header class="header glass-panel">
         <h2 class="page-title">{{ currentRouteTitle }}</h2>
         <div class="header-actions">
+          <!-- Base Currency Switch -->
+          <div class="setting-item">
+            <span class="setting-label">展示货币</span>
+            <el-select v-model="baseCurrency" size="small" style="width: 115px;" @change="handleCurrencyChange">
+              <el-option value="CNY" label="人民币 (CNY)" />
+              <el-option value="USD" label="美元 (USD)" />
+              <el-option value="HKD" label="港元 (HKD)" />
+            </el-select>
+          </div>
+
+          <div class="divider"></div>
+
           <!-- Theme Switch -->
           <div class="setting-item">
             <span class="setting-label">视觉主题</span>
@@ -76,7 +88,7 @@
       <main class="content-viewport">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" :color-convention="colorConvention" :theme="theme" />
+            <component :is="Component" :color-convention="colorConvention" :theme="theme" :base-currency="baseCurrency" />
           </transition>
         </router-view>
       </main>
@@ -95,6 +107,7 @@ const route = useRoute()
 const username = ref('User')
 const colorConvention = ref('CN')
 const theme = ref('dark-indigo')
+const baseCurrency = ref('CNY')
 const currentTime = ref('')
 let timer = null
 
@@ -131,6 +144,10 @@ const loadUserData = () => {
   const savedTheme = localStorage.getItem('theme') || 'dark-indigo'
   theme.value = savedTheme
   applyTheme(savedTheme)
+
+  // Load base currency preference
+  const savedCurrency = localStorage.getItem('baseCurrency') || 'CNY'
+  baseCurrency.value = savedCurrency
 }
 
 const handleThemeChange = (val) => {
@@ -142,6 +159,11 @@ const handleThemeChange = (val) => {
 const handleColorChange = (val) => {
   localStorage.setItem('colorConvention', val)
   ElMessage.success(`已切换为: ${val === 'CN' ? '红涨绿跌' : '绿涨红跌'}`)
+}
+
+const handleCurrencyChange = (val) => {
+  localStorage.setItem('baseCurrency', val)
+  ElMessage.success(`已切换展示货币为: ${val}`)
 }
 
 const handleLogout = () => {

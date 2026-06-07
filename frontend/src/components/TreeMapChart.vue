@@ -29,6 +29,10 @@ const props = defineProps({
   theme: {
     type: String,
     default: 'dark-indigo'
+  },
+  baseCurrency: {
+    type: String,
+    default: 'CNY'
   }
 })
 
@@ -68,17 +72,39 @@ const highContrastPalette = [
   '#84cc16'  // Lime
 ]
 
+const getBaseCurrencyRate = (currency, holdings) => {
+  const rates = { CNY: 1.0, USD: 7.20, HKD: 0.92 }
+  holdings.forEach((h) => {
+    if (h.asset && h.asset.currency && h.asset.exchangeRate) {
+      rates[h.asset.currency] = h.asset.exchangeRate
+    }
+  })
+  return rates[currency] || 1.0
+}
+
+const getCurrencySymbol = (currency) => {
+  const symbols = {
+    'CNY': '¥',
+    'USD': '$',
+    'HKD': 'HK$'
+  }
+  return symbols[currency] || '¥'
+}
+
 const buildChartData = () => {
   if (!props.holdings || props.holdings.length === 0) {
     return []
   }
+
+  const baseRate = getBaseCurrencyRate(props.baseCurrency, props.holdings)
 
   if (viewMode.value === 'market') {
     // 1. Group by Market
     const groups = {}
     props.holdings.forEach((h) => {
       const market = h.asset ? h.asset.market : 'Other'
-      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (h.asset ? (h.asset.exchangeRate || 1.0) : 1.0)
+      const assetRate = h.asset ? (h.asset.exchangeRate || 1.0) : 1.0
+      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (assetRate / baseRate)
       if (val <= 0) return
 
       if (!groups[market]) {
@@ -114,7 +140,8 @@ const buildChartData = () => {
     const unclassified = []
 
     props.holdings.forEach((h) => {
-      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (h.asset ? (h.asset.exchangeRate || 1.0) : 1.0)
+      const assetRate = h.asset ? (h.asset.exchangeRate || 1.0) : 1.0
+      const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (assetRate / baseRate)
       if (val <= 0) return
 
       const pnlPct = getHoldingPnlPct(h)
@@ -204,10 +231,11 @@ const renderChart = () => {
       formatter: function (info) {
         const value = info.value
         const name = info.name.split('\n')[0]
+        const symbol = getCurrencySymbol(props.baseCurrency)
         return [
           `<div style="font-family: 'Outfit', sans-serif; padding: 4px;">`,
           `<strong style="font-size: 14px;">${name}</strong><br/>`,
-          `市值: ¥ ${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
+          `市值: ${symbol} ${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
           `</div>`
         ].join('')
       }
@@ -271,7 +299,7 @@ const handleResize = () => {
   }
 }
 
-watch([() => props.holdings, () => props.colorConvention], () => {
+watch([() => props.holdings, () => props.colorConvention, () => props.baseCurrency], () => {
   renderChart()
 }, { deep: true })
 
