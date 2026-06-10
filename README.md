@@ -2,7 +2,7 @@
 
 FolioTrack 是一个专为个人设计的现代化、可视化资产管理系统。支持对**中国A股、中国基金、香港港股、美国美股**等多个市场标的进行统一管理与持仓追踪。
 
-系统采用前后端分离架构，前端基于 **Vue 3** 展现精致暗黑风与毛玻璃质感，后端基于 **Go (Gin + GORM)** 提供高性能数据服务，并支持 **Docker Compose** 一键本地化部署。
+系统采用前后端分离架构，前端基于 **Vue 3** 展现精致暗黑风与毛玻璃质感，后端基于 **Go (Gin + GORM)** 提供高性能数据服务，并支持 **Docker Compose** 本机部署与服务器部署。
 
 ---
 
@@ -21,13 +21,13 @@ FolioTrack 是一个专为个人设计的现代化、可视化资产管理系统
 
 - [**`frontend/`**](./frontend/README.md)：前端项目目录（Vue 3 + Vite + Element Plus + ECharts）。
 - [**`backend/`**](./backend/README.md)：后端项目目录（Go + Gin + GORM）。
-- [**`deploy/`**](./deploy/README.md)：部署目录（MySQL 初始化脚本、Docker Compose 配置文件）。
+- [**`deploy/`**](./deploy/README.md)：部署目录（本机/服务器 Docker Compose、MySQL 初始化脚本、nginx 模板）。
 
 ---
 
-## 🛠 一键部署指南
+## 🛠 本机快速启动
 
-运行本项目最简单快捷的方式是使用 **Docker Compose**：
+本机试用推荐使用 `deploy/docker-compose.local.yml`，不需要公网 nginx 或 HTTPS：
 
 1. **进入部署目录**：
    ```bash
@@ -36,12 +36,14 @@ FolioTrack 是一个专为个人设计的现代化、可视化资产管理系统
 
 2. **启动服务**：
    ```bash
-   docker-compose up -d --build
+   docker compose -f docker-compose.local.yml up -d --build
    ```
 
 3. **访问系统**：
-   - 浏览器打开：`http://localhost` 即可进入系统。
-   - 默认会自动运行初始化数据库并注册用户，您可以直接点击**“立即注册”**来创建您自己的私有账户。
+   - 浏览器打开：`http://localhost:8088`
+   - 默认管理员账号：`admin / admin123`
+
+更多本机部署说明见 [deploy/README.local.md](./deploy/README.local.md)。服务器公网部署、HTTPS 与 nginx 反代配置见 [deploy/README.server.md](./deploy/README.server.md)。
 
 ---
 

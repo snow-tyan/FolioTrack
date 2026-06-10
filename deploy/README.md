@@ -1,54 +1,43 @@
-# FolioTrack 一键部署服务
+# FolioTrack 部署说明
 
-本目录包含了使用 Docker Compose 快速部署 FolioTrack 系统所需的所有配置。
+`deploy/` 目录提供两种 Docker 部署方式：本机试用部署和服务器公网部署。请根据使用场景选择对应文档。
 
----
+## 本机部署
 
-## 📦 部署架构
+适用于本机试用、功能验证或开发调试，不需要公网 nginx，也不需要 HTTPS。
 
-- **前端服务** (`frontend`)：Nginx 服务，托管 Vue 3 静态编译文件，并在内部将以 `/api/` 开头的接口请求代理到 `backend` 容器。
-- **后端服务** (`backend`)：运行 Go 编译后的二进制服务，监听 `8080` 端口。
-- **数据库** (`db`)：MySQL 8.0 容器，自动初始化数据库。
+- Compose 文件：`docker-compose.local.yml`
+- 详细文档：`README.local.md`
+- 默认访问地址：`http://localhost:8088`
 
----
+快速启动：
 
-## 🛠 部署步骤
+```bash
+cd deploy
+docker compose -f docker-compose.local.yml up -d --build
+```
 
-1. **准备 Docker 环境**：
-   确保您的服务器/主机已安装 Docker 和 Docker Compose。
+默认管理员账号：
 
-2. **一键启动**：
-   在当前目录下执行：
-   ```bash
-   docker-compose up -d --build
-   ```
-   *注意：该命令会就地构建前端与后端容器镜像，并下载 MySQL 镜像。*
+```text
+用户名：admin
+密码：admin123
+```
 
-3. **进入系统**：
-   服务启动后，在浏览器直接访问：`http://localhost`
+## 服务器部署
 
----
+适用于已有公网 nginx 容器的服务器部署场景。FolioTrack 服务不直接暴露公网端口，而是通过 Docker 网络交给公网 nginx 反代，并使用 HTTPS 访问。
 
-## 📋 常用运维命令
+- Compose 文件：`docker-compose.yml`
+- 详细文档：`README.server.md`
+- nginx 模板目录：`nginx/`
+- 域名替换脚本：`scripts/set-domain.sh`
 
-- **查看服务运行状态**：
-  ```bash
-  docker-compose ps
-  ```
+服务器部署前，请先复制 `.env.example` 为 `.env` 并设置强密码和密钥。
 
-- **查看后端服务运行日志**：
-  ```bash
-  docker-compose logs -f backend
-  ```
+## 常用文件
 
-- **停止并移除所有容器**：
-  ```bash
-  docker-compose down
-  ```
-
-- **重置数据**：
-  如果需要清空所有数据库数据并重新开始，可运行：
-  ```bash
-  docker-compose down -v
-  ```
-  *(警告：这会删除 Docker 卷 `db_data` 中的所有持久化资产数据！)*
+- `.env.example`：生产环境变量模板。
+- `mysql/init.sql`：MySQL 初始化 SQL。
+- `nginx/track.example.com.http.conf`：首次申请证书前使用的 HTTP 配置。
+- `nginx/track.example.com.conf`：证书申请后使用的 HTTPS 配置。
