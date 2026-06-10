@@ -23,6 +23,9 @@
 | `PORT` | 服务启动端口 | `8080` |
 | `DB_DSN` | MySQL 连接 DSN | `root:rootpass@tcp(127.0.0.1:3306)/foliotrack?charset=utf8mb4&parseTime=True&loc=Local` |
 | `JWT_SECRET` | 签名 Token 的密钥 | `foliotrack-super-secret-key-change-in-prod` |
+| `REDIS_ADDR` | Redis 服务地址 | `127.0.0.1:6379` |
+| `ALLOW_REGISTRATION` | 是否开放公开注册 | `true` |
+| `REGISTRATION_INVITE_CODE` | 注册邀请码；为空时不校验邀请码 | 空 |
 
 ---
 

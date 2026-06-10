@@ -36,7 +36,13 @@ api.interceptors.response.use(
       localStorage.removeItem('user')
       router.push({ name: 'Login' })
     }
-    return Promise.reject(error)
+
+    const message = error.response?.data?.message || error.message || '请求失败'
+    const normalizedError = new Error(message)
+    normalizedError.status = error.response?.status
+    normalizedError.code = error.response?.data?.code
+    normalizedError.response = error.response
+    return Promise.reject(normalizedError)
   }
 )
 

@@ -23,6 +23,10 @@
           <el-input v-model="form.confirmPassword" type="password" placeholder="请再次输入密码" show-password prefix-icon="Lock" />
         </el-form-item>
 
+        <el-form-item v-if="isRegister && requireInviteCode" label="邀请码" prop="inviteCode">
+          <el-input v-model="form.inviteCode" placeholder="请输入管理员提供的邀请码" prefix-icon="Key" />
+        </el-form-item>
+
         <div class="action-buttons">
           <el-button type="primary" :loading="loading" @click="handleSubmit" class="submit-btn">
             {{ isRegister ? '注 册' : '登 录' }}
@@ -30,16 +34,19 @@
         </div>
       </el-form>
 
-      <div class="toggle-mode">
+      <div v-if="allowRegistration" class="toggle-mode">
         <span>{{ isRegister ? '已有账号？' : '还没有账号？' }}</span>
         <a href="#" @click.prevent="toggleMode">{{ isRegister ? '立即登录' : '立即注册' }}</a>
+      </div>
+      <div v-else class="toggle-mode">
+        <span>本站未开放公开注册，请联系管理员开通账号</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
@@ -48,11 +55,14 @@ const router = useRouter()
 const formRef = ref(null)
 const isRegister = ref(false)
 const loading = ref(false)
+const allowRegistration = ref(false)
+const requireInviteCode = ref(false)
 
 const form = reactive({
   username: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  inviteCode: ''
 })
 
 const validatePass2 = (rule, value, callback) => {
@@ -60,6 +70,14 @@ const validatePass2 = (rule, value, callback) => {
     callback(new Error('请再次输入密码'))
   } else if (value !== form.password) {
     callback(new Error('两次输入密码不一致!'))
+  } else {
+    callback()
+  }
+}
+
+const validateInviteCode = (rule, value, callback) => {
+  if (isRegister.value && requireInviteCode.value && !value) {
+    callback(new Error('请输入邀请码'))
   } else {
     callback()
   }
@@ -77,13 +95,28 @@ const rules = {
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
     { validator: validatePass2, trigger: 'blur' }
+  ],
+  inviteCode: [
+    { validator: validateInviteCode, trigger: 'blur' }
   ]
 }
 
 const toggleMode = () => {
+  if (!allowRegistration.value) return
   isRegister.value = !isRegister.value
   if (formRef.value) formRef.value.resetFields()
 }
+
+onMounted(async () => {
+  try {
+    const config = await api.get('/system/config')
+    allowRegistration.value = config.allowRegistration !== false
+    requireInviteCode.value = config.requireInviteCode === true
+  } catch (err) {
+    allowRegistration.value = false
+    requireInviteCode.value = false
+  }
+})
 
 const handleSubmit = () => {
   if (!formRef.value) return
@@ -92,14 +125,20 @@ const handleSubmit = () => {
       loading.value = true
       try {
         if (isRegister.value) {
+          if (!allowRegistration.value) {
+            ElMessage.warning('本站未开放公开注册，请联系管理员')
+            return
+          }
           // Register flow
           await api.post('/auth/register', {
             username: form.username,
-            password: form.password
+            password: form.password,
+            inviteCode: form.inviteCode
           })
           ElMessage.success('注册成功，请登录！')
           isRegister.value = false
           form.confirmPassword = ''
+          form.inviteCode = ''
         } else {
           // Login flow
           const data = await api.post('/auth/login', {

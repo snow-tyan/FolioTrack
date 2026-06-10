@@ -10,7 +10,7 @@ services:
     ports:
       - "13306:3306"
     volumes:
-      - local_db_data:/var/lib/mysql
+      - db_data:/var/lib/mysql
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
@@ -45,6 +45,8 @@ services:
       JWT_SECRET: local-dev-secret
       REDIS_ADDR: redis:6379
       ADMIN_PASSWORD: admin123
+      ALLOW_REGISTRATION: "true"
+      REGISTRATION_INVITE_CODE: "yaoqingma"
     depends_on:
       db:
         condition: service_healthy
@@ -64,4 +66,4 @@ services:
       - backend
 
 volumes:
-  local_db_data:
+  db_data:

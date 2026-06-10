@@ -103,6 +103,8 @@ MYSQL_DATABASE=foliotrack
 MYSQL_ROOT_PASSWORD=change-this-mysql-root-password
 JWT_SECRET=change-this-to-a-long-random-secret
 ADMIN_PASSWORD=change-this-admin-password
+ALLOW_REGISTRATION=true
+REGISTRATION_INVITE_CODE=change-this-invite-code
 ```
 
 建议：
@@ -110,6 +112,8 @@ ADMIN_PASSWORD=change-this-admin-password
 - `MYSQL_ROOT_PASSWORD` 使用字母和数字组合，避免 `@`、`/`、`:` 这类可能影响数据库连接串的字符。
 - `JWT_SECRET` 使用足够长的随机字符串。
 - `ADMIN_PASSWORD` 是首次初始化时创建的 `admin` 用户密码。
+- `ALLOW_REGISTRATION=true` 表示允许注册入口。
+- `REGISTRATION_INVITE_CODE` 是公网注册邀请码，请务必改成只有你知道的随机字符串。
 
 ## 5. 启动 FolioTrack
 

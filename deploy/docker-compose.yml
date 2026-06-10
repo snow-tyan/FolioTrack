@@ -45,6 +45,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       REDIS_ADDR: redis:6379
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      REGISTRATION_INVITE_CODE: ${REGISTRATION_INVITE_CODE:?set REGISTRATION_INVITE_CODE in .env}
     depends_on:
       db:
         condition: service_healthy

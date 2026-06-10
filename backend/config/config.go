@@ -6,12 +6,14 @@ import (
 )
 
 type Config struct {
-	Port          string
-	DBDSN         string
-	JWTSecret     []byte
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
+	Port                   string
+	DBDSN                  string
+	JWTSecret              []byte
+	RedisAddr              string
+	RedisPassword          string
+	RedisDB                int
+	AllowRegistration      bool
+	RegistrationInviteCode string
 }
 
 var AppConfig *Config
@@ -47,12 +49,23 @@ func LoadConfig() {
 		}
 	}
 
+	allowRegistration := true
+	if val := os.Getenv("ALLOW_REGISTRATION"); val != "" {
+		if parsed, err := strconv.ParseBool(val); err == nil {
+			allowRegistration = parsed
+		}
+	}
+
+	registrationInviteCode := os.Getenv("REGISTRATION_INVITE_CODE")
+
 	AppConfig = &Config{
-		Port:          port,
-		DBDSN:         dbDSN,
-		JWTSecret:     []byte(jwtSecretStr),
-		RedisAddr:     redisAddr,
-		RedisPassword: redisPassword,
-		RedisDB:       redisDB,
+		Port:                   port,
+		DBDSN:                  dbDSN,
+		JWTSecret:              []byte(jwtSecretStr),
+		RedisAddr:              redisAddr,
+		RedisPassword:          redisPassword,
+		RedisDB:                redisDB,
+		AllowRegistration:      allowRegistration,
+		RegistrationInviteCode: registrationInviteCode,
 	}
 }

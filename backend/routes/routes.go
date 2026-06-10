@@ -66,6 +66,8 @@ func SetupRouter() *gin.Engine {
 
 	api := r.Group("/api")
 	{
+		api.GET("/system/config", controllers.GetSystemConfig)
+
 		// Public Auth
 		auth := api.Group("/auth")
 		{

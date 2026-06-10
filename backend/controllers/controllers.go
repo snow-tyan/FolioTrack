@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"crypto/subtle"
 	"errors"
+	"foliotrack/config"
 	"foliotrack/models"
 	"foliotrack/services"
 	"foliotrack/utils"
@@ -17,15 +19,28 @@ import (
 // === AUTH CONTROLLER ===
 
 type RegisterInput struct {
-	Username string `json:"username" binding:"required,min=3,max=50"`
-	Password string `json:"password" binding:"required,min=6"`
+	Username   string `json:"username" binding:"required,min=3,max=50"`
+	Password   string `json:"password" binding:"required,min=6"`
+	InviteCode string `json:"inviteCode"`
 }
 
 func Register(c *gin.Context) {
+	if !config.AppConfig.AllowRegistration {
+		utils.Error(c, http.StatusForbidden, 40032, "当前站点已关闭公开注册，请联系管理员")
+		return
+	}
+
 	var input RegisterInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		utils.Error(c, http.StatusBadRequest, 40001, "输入不合法: "+err.Error())
 		return
+	}
+
+	if config.AppConfig.RegistrationInviteCode != "" {
+		if subtle.ConstantTimeCompare([]byte(input.InviteCode), []byte(config.AppConfig.RegistrationInviteCode)) != 1 {
+			utils.Error(c, http.StatusForbidden, 40033, "邀请码不正确")
+			return
+		}
 	}
 
 	// Check if user exists
@@ -57,6 +72,13 @@ func Register(c *gin.Context) {
 	}
 
 	utils.Success(c, gin.H{"id": user.ID, "username": user.Username, "role": user.Role})
+}
+
+func GetSystemConfig(c *gin.Context) {
+	utils.Success(c, gin.H{
+		"allowRegistration": config.AppConfig.AllowRegistration,
+		"requireInviteCode": config.AppConfig.RegistrationInviteCode != "",
+	})
 }
 
 type LoginInput struct {
@@ -147,12 +169,12 @@ func Me(c *gin.Context) {
 // === HOLDING CONTROLLER ===
 
 type HoldingInput struct {
-	Symbol    string   `json:"symbol" binding:"required"`
-	Market    string   `json:"market" binding:"required"` // A-share, HK-stock, US-stock, Fund
-	Quantity  float64  `json:"quantity" binding:"required,gt=0"`
-	CostPrice float64  `json:"costPrice" binding:"required,gt=0"`
-	ComboIDs  []uint   `json:"comboIds"`
-	IsPublic  *bool    `json:"isPublic"`
+	Symbol    string  `json:"symbol" binding:"required"`
+	Market    string  `json:"market" binding:"required"` // A-share, HK-stock, US-stock, Fund
+	Quantity  float64 `json:"quantity" binding:"required,gt=0"`
+	CostPrice float64 `json:"costPrice" binding:"required,gt=0"`
+	ComboIDs  []uint  `json:"comboIds"`
+	IsPublic  *bool   `json:"isPublic"`
 }
 
 func ListHoldings(c *gin.Context) {
@@ -324,7 +346,7 @@ func UpdateHolding(c *gin.Context) {
 				return err
 			}
 		}
-		
+
 		if err := tx.Model(&holding).Association("Combos").Replace(combos); err != nil {
 			return err
 		}
@@ -925,5 +947,3 @@ func GetUserHoldings(c *gin.Context) {
 
 	utils.Success(c, holdings)
 }
-
-
