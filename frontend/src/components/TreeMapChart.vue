@@ -6,6 +6,7 @@
         <el-radio-group v-model="viewMode" size="small" @change="renderChart">
           <el-radio-button value="market">按市场分组</el-radio-button>
           <el-radio-button value="combo">按组合分组</el-radio-button>
+          <el-radio-button value="account">按账户分组</el-radio-button>
         </el-radio-group>
       </div>
     </div>
@@ -38,7 +39,7 @@ const props = defineProps({
 
 const chartRef = ref(null)
 let chartInstance = null
-const viewMode = ref('market') // 'market' or 'combo'
+const viewMode = ref('market') // 'market', 'combo', or 'account'
 
 // Format market names
 const marketNames = {
@@ -115,11 +116,13 @@ const buildChartData = () => {
       const colorIndex = groups[market].length
       const color = highContrastPalette[colorIndex % highContrastPalette.length]
       const comboNames = h.combos ? h.combos.map((c) => c.name) : []
+      const accountName = h.account ? h.account.name : '默认账户'
 
       groups[market].push({
         name: `${h.asset ? h.asset.name : h.assetId}\n${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
         value: val,
         combos: comboNames,
+        account: accountName,
         itemStyle: {
           color: color
         },
@@ -135,7 +138,7 @@ const buildChartData = () => {
       children: groups[market]
     }))
 
-  } else {
+  } else if (viewMode.value === 'combo') {
     // 2. Group by Combo
     const comboHoldings = {}
     const unclassified = []
@@ -176,10 +179,12 @@ const buildChartData = () => {
         name: cName,
         children: comboHoldings[cName].map((node) => {
           const comboNames = node.h.combos ? node.h.combos.map((c) => c.name) : []
+          const accountName = node.h.account ? node.h.account.name : '默认账户'
           return {
             name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
             value: node.value,
             combos: comboNames,
+            account: accountName,
             itemStyle: {
               color: groupColor
             },
@@ -198,10 +203,12 @@ const buildChartData = () => {
         name: '未分类组合',
         children: unclassified.map((node) => {
           const comboNames = node.h.combos ? node.h.combos.map((c) => c.name) : []
+          const accountName = node.h.account ? node.h.account.name : '默认账户'
           return {
             name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
             value: node.value,
             combos: comboNames,
+            account: accountName,
             itemStyle: {
               color: unclassifiedColor
             },
@@ -216,6 +223,51 @@ const buildChartData = () => {
 
     return chartData
   }
+
+  // 3. Group by Account
+  const accountHoldings = {}
+  props.holdings.forEach((h) => {
+    const assetRate = h.asset ? (h.asset.exchangeRate || 1.0) : 1.0
+    const val = h.quantity * (h.asset ? h.asset.currentPrice : 0) * (assetRate / baseRate)
+    if (val <= 0) return
+
+    const marketName = h.asset ? (marketNames[h.asset.market] || h.asset.market) : '其他'
+    const accountName = h.account ? h.account.name : '默认账户'
+    const groupName = `${marketName} / ${accountName}`
+    if (!accountHoldings[groupName]) {
+      accountHoldings[groupName] = []
+    }
+    accountHoldings[groupName].push({
+      h,
+      pnlPct: getHoldingPnlPct(h),
+      value: val
+    })
+  })
+
+  const accountNames = Object.keys(accountHoldings).sort()
+  return accountNames.map((accountName, idx) => {
+    const groupColor = highContrastPalette[idx % highContrastPalette.length]
+    return {
+      name: accountName,
+      children: accountHoldings[accountName].map((node) => {
+        const comboNames = node.h.combos ? node.h.combos.map((c) => c.name) : []
+        const holdingAccountName = node.h.account ? node.h.account.name : '默认账户'
+        return {
+          name: `${node.h.asset ? node.h.asset.name : node.h.assetId}\n${node.pnlPct >= 0 ? '+' : ''}${node.pnlPct.toFixed(2)}%`,
+          value: node.value,
+          combos: comboNames,
+          account: holdingAccountName,
+          itemStyle: {
+            color: groupColor
+          },
+          label: {
+            show: true,
+            formatter: `{b}`
+          }
+        }
+      })
+    }
+  })
 }
 
 const renderChart = () => {
@@ -259,18 +311,20 @@ const renderChart = () => {
         // Calculate holding percentage
         const pct = totalValue > 0 ? (value / totalValue) * 100 : 0
         
-        // Calculate group (combo) total percentage of the entire portfolio when grouping by combo
+        // Calculate group total percentage of the entire portfolio when grouping by combo or account
         let groupPctStr = ''
-        if (viewMode.value === 'combo' && info.treePathInfo && info.treePathInfo.length > 2) {
+        if ((viewMode.value === 'combo' || viewMode.value === 'account') && info.treePathInfo && info.treePathInfo.length > 2) {
           const totalVal = info.treePathInfo[0].value
           const groupVal = info.treePathInfo[1].value
           if (totalVal > 0) {
             const groupPct = (groupVal / totalVal) * 100
-            groupPctStr = `<span style="color: #9ca3af;">当前组合占比:</span> <span style="font-weight: 600;">${groupPct.toFixed(2)}%</span><br/>`
+            const groupLabel = viewMode.value === 'account' ? '当前账户占比' : '当前组合占比'
+            groupPctStr = `<span style="color: #9ca3af;">${groupLabel}:</span> <span style="font-weight: 600;">${groupPct.toFixed(2)}%</span><br/>`
           }
         }
 
         const combosStr = info.data.combos.length > 0 ? info.data.combos.join(', ') : '无'
+        const accountStr = info.data.account || '默认账户'
 
         return [
           `<div style="font-family: 'Outfit', sans-serif; padding: 6px; line-height: 1.6;">`,
@@ -278,6 +332,7 @@ const renderChart = () => {
           `<span style="color: #9ca3af;">当前市值:</span> <span style="font-weight: 600;">${symbol} ${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span><br/>`,
           `<span style="color: #9ca3af;">总持仓占比:</span> <span style="font-weight: 600;">${pct.toFixed(2)}%</span><br/>`,
           groupPctStr,
+          `<span style="color: #9ca3af;">所属账户:</span> <span style="font-weight: 600;">${accountStr}</span><br/>`,
           `<span style="color: #9ca3af;">所属组合:</span> <span style="font-weight: 600;">${combosStr}</span>`,
           `</div>`
         ].join('')

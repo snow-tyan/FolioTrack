@@ -111,6 +111,12 @@
                 </el-tag>
               </template>
             </el-table-column>
+
+            <el-table-column label="账户" min-width="100">
+              <template #default="scope">
+                <span>{{ scope.row.account ? scope.row.account.name : '默认账户' }}</span>
+              </template>
+            </el-table-column>
             
             <el-table-column label="持仓数量" align="right" width="100">
               <template #default="scope">

@@ -66,7 +66,12 @@ func Register(c *gin.Context) {
 		IsLocked:      false,
 	}
 
-	if err := models.DB.Create(&user).Error; err != nil {
+	if err := models.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		return services.EnsureDefaultAccounts(tx, user.ID)
+	}); err != nil {
 		utils.Error(c, http.StatusInternalServerError, 50002, "创建用户失败")
 		return
 	}
@@ -171,6 +176,7 @@ func Me(c *gin.Context) {
 type HoldingInput struct {
 	Symbol    string  `json:"symbol" binding:"required"`
 	Market    string  `json:"market" binding:"required"` // A-share, HK-stock, US-stock, Fund
+	AccountID uint    `json:"accountId"`
 	Quantity  float64 `json:"quantity" binding:"required,gt=0"`
 	CostPrice float64 `json:"costPrice" binding:"required,gt=0"`
 	ComboIDs  []uint  `json:"comboIds"`
@@ -182,7 +188,7 @@ func ListHoldings(c *gin.Context) {
 	userIDVal := userID.(uint)
 
 	var holdings []*models.Holding
-	err := models.DB.Preload("Asset").Preload("Combos").Preload("User").Where("user_id = ?", userIDVal).Find(&holdings).Error
+	err := models.DB.Preload("Asset").Preload("Account").Preload("Combos").Preload("User").Where("user_id = ?", userIDVal).Find(&holdings).Error
 
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, 50004, "获取持仓列表失败")
@@ -228,17 +234,21 @@ func CreateHolding(c *gin.Context) {
 	market := strings.TrimSpace(input.Market)
 
 	// Validate Market
-	validMarkets := map[string]bool{"A-share": true, "HK-stock": true, "US-stock": true, "Fund": true}
-	if !validMarkets[market] {
+	if !services.IsValidMarket(market) {
 		utils.Error(c, http.StatusBadRequest, 40009, "不受支持的资产市场类型")
 		return
 	}
 
 	// Use Transaction
 	err := models.DB.Transaction(func(tx *gorm.DB) error {
+		account, err := services.ResolveAccountForHolding(tx, userID.(uint), market, input.AccountID)
+		if err != nil {
+			return err
+		}
+
 		// 1. Find or create Asset
 		var asset models.Asset
-		err := tx.Where("symbol = ? AND market = ?", symbol, market).First(&asset).Error
+		err = tx.Where("symbol = ? AND market = ?", symbol, market).First(&asset).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			asset = models.Asset{
 				Symbol: symbol,
@@ -254,11 +264,11 @@ func CreateHolding(c *gin.Context) {
 			return err
 		}
 
-		// 2. Check if user already holds this asset
+		// 2. Check if this account already holds this asset
 		var holding models.Holding
-		err = tx.Where("user_id = ? AND asset_id = ?", userID, asset.ID).First(&holding).Error
+		err = tx.Where("user_id = ? AND account_id = ? AND asset_id = ?", userID, account.ID, asset.ID).First(&holding).Error
 		if err == nil {
-			return errors.New("已持有该股票，请直接修改持仓")
+			return errors.New("该账户已持有该标的，请直接修改持仓")
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -270,6 +280,7 @@ func CreateHolding(c *gin.Context) {
 		}
 		holding = models.Holding{
 			UserID:    userID.(uint),
+			AccountID: account.ID,
 			AssetID:   asset.ID,
 			Quantity:  input.Quantity,
 			CostPrice: input.CostPrice,
@@ -319,7 +330,7 @@ func UpdateHolding(c *gin.Context) {
 	}
 
 	var holding models.Holding
-	err = models.DB.Where("id = ? AND user_id = ?", holdingID, userID).First(&holding).Error
+	err = models.DB.Preload("Asset").Where("id = ? AND user_id = ?", holdingID, userID).First(&holding).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		utils.Error(c, http.StatusNotFound, 40013, "未找到持仓记录")
 		return
@@ -329,6 +340,21 @@ func UpdateHolding(c *gin.Context) {
 	}
 
 	err = models.DB.Transaction(func(tx *gorm.DB) error {
+		account, err := services.ResolveAccountForHolding(tx, userID.(uint), holding.Asset.Market, input.AccountID)
+		if err != nil {
+			return err
+		}
+
+		var duplicate models.Holding
+		err = tx.Where("id <> ? AND user_id = ? AND account_id = ? AND asset_id = ?", holding.ID, userID, account.ID, holding.AssetID).First(&duplicate).Error
+		if err == nil {
+			return errors.New("该账户已持有该标的")
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		holding.AccountID = account.ID
 		holding.Quantity = input.Quantity
 		holding.CostPrice = input.CostPrice
 		if input.IsPublic != nil {
@@ -355,7 +381,7 @@ func UpdateHolding(c *gin.Context) {
 	})
 
 	if err != nil {
-		utils.Error(c, http.StatusInternalServerError, 50006, "修改持仓失败")
+		utils.Error(c, http.StatusInternalServerError, 50006, "修改持仓失败: "+err.Error())
 		return
 	}
 
@@ -384,6 +410,133 @@ func DeleteHolding(c *gin.Context) {
 	}
 
 	utils.Success(c, "删除持仓成功")
+}
+
+// === ACCOUNT CONTROLLER ===
+
+type AccountInput struct {
+	Name   string `json:"name" binding:"required,min=1,max=50"`
+	Market string `json:"market" binding:"required"`
+}
+
+func ListAccounts(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	if err := services.EnsureDefaultAccounts(models.DB, userID.(uint)); err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50022, "初始化账户失败")
+		return
+	}
+
+	var accounts []models.Account
+	err := models.DB.Where("user_id = ?", userID).Order("market asc, is_default desc, id asc").Find(&accounts).Error
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50023, "获取账户列表失败")
+		return
+	}
+
+	utils.Success(c, accounts)
+}
+
+func CreateAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var input AccountInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.Error(c, http.StatusBadRequest, 40034, "参数不合法: "+err.Error())
+		return
+	}
+
+	market := strings.TrimSpace(input.Market)
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		utils.Error(c, http.StatusBadRequest, 40034, "账户名称不能为空")
+		return
+	}
+	if !services.IsValidMarket(market) {
+		utils.Error(c, http.StatusBadRequest, 40009, "不受支持的资产市场类型")
+		return
+	}
+
+	account := models.Account{
+		UserID: userID.(uint),
+		Market: market,
+		Name:   name,
+	}
+	if err := models.DB.Create(&account).Error; err != nil {
+		utils.Error(c, http.StatusBadRequest, 40035, "创建账户失败，可能存在同名账户")
+		return
+	}
+
+	utils.Success(c, account)
+}
+
+func UpdateAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	accountID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40036, "无效的账户 ID")
+		return
+	}
+
+	var input AccountInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.Error(c, http.StatusBadRequest, 40034, "参数不合法: "+err.Error())
+		return
+	}
+
+	var account models.Account
+	if err := models.DB.Where("id = ? AND user_id = ?", accountID, userID).First(&account).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40037, "账户不存在")
+		return
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		utils.Error(c, http.StatusBadRequest, 40034, "账户名称不能为空")
+		return
+	}
+	account.Name = name
+	if err := models.DB.Save(&account).Error; err != nil {
+		utils.Error(c, http.StatusBadRequest, 40035, "更新账户失败，可能存在同名账户")
+		return
+	}
+
+	utils.Success(c, account)
+}
+
+func DeleteAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	accountID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40036, "无效的账户 ID")
+		return
+	}
+
+	var account models.Account
+	if err := models.DB.Where("id = ? AND user_id = ?", accountID, userID).First(&account).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, 40037, "账户不存在")
+		return
+	}
+	if account.IsDefault {
+		utils.Error(c, http.StatusBadRequest, 40038, "默认账户不能删除")
+		return
+	}
+
+	var count int64
+	if err := models.DB.Model(&models.Holding{}).Where("account_id = ?", account.ID).Count(&count).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50024, "检查账户持仓失败")
+		return
+	}
+	if count > 0 {
+		utils.Error(c, http.StatusBadRequest, 40039, "该账户仍有持仓，请先迁移或删除持仓")
+		return
+	}
+
+	if err := models.DB.Delete(&account).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, 50025, "删除账户失败")
+		return
+	}
+
+	utils.Success(c, "删除账户成功")
 }
 
 // === COMBO CONTROLLER ===
@@ -703,6 +856,9 @@ func DeleteUser(c *gin.Context) {
 		if err := tx.Where("user_id = ?", targetID).Delete(&models.Combo{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("user_id = ?", targetID).Delete(&models.Account{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Delete(&models.User{}, targetID).Error; err != nil {
 			return err
 		}
@@ -815,7 +971,7 @@ func UnlockUser(c *gin.Context) {
 func ListPublicHoldings(c *gin.Context) {
 	var holdings []*models.Holding
 	// Query only holdings where is_public = true (including current user's own public holdings)
-	err := models.DB.Preload("Asset").Preload("Combos").Preload("User").
+	err := models.DB.Preload("Asset").Preload("Account").Preload("Combos").Preload("User").
 		Where("is_public = ?", true).
 		Find(&holdings).Error
 
@@ -850,7 +1006,7 @@ func ListPublicCombos(c *gin.Context) {
 	var combos []models.Combo
 	// Query public combos, and preload only their public holdings (including current user's own public combos)
 	err := models.DB.Preload("Holdings", "is_public = ?", true).
-		Preload("Holdings.Asset").Preload("Holdings.User").
+		Preload("Holdings.Asset").Preload("Holdings.Account").Preload("Holdings.User").
 		Where("is_public = ?", true).
 		Find(&combos).Error
 
@@ -916,7 +1072,7 @@ func GetUserHoldings(c *gin.Context) {
 	}
 
 	var holdings []*models.Holding
-	err = models.DB.Preload("Asset").Preload("Combos").Preload("User").Where("user_id = ?", targetID).Find(&holdings).Error
+	err = models.DB.Preload("Asset").Preload("Account").Preload("Combos").Preload("User").Where("user_id = ?", targetID).Find(&holdings).Error
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, 50004, "获取持仓列表失败")
 		return

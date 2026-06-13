@@ -16,6 +16,7 @@ type User struct {
 	Role          string         `gorm:"not null;size:20;default:'user'" json:"role"`
 	LoginAttempts int            `gorm:"not null;default:0" json:"loginAttempts"`
 	IsLocked      bool           `gorm:"not null;default:false" json:"isLocked"`
+	Accounts      []Account      `gorm:"foreignKey:UserID" json:"accounts,omitempty"`
 	Holdings      []Holding      `gorm:"foreignKey:UserID" json:"holdings,omitempty"`
 	Combos        []Combo        `gorm:"foreignKey:UserID" json:"combos,omitempty"`
 }
@@ -45,15 +46,29 @@ func (a *Asset) BeforeSave(tx *gorm.DB) (err error) {
 	return nil
 }
 
+type Account struct {
+	ID        uint           `gorm:"primaryKey" json:"id"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	UserID    uint           `gorm:"uniqueIndex:idx_user_market_account_name;not null" json:"userId"`
+	User      User           `gorm:"foreignKey:UserID" json:"user"`
+	Name      string         `gorm:"uniqueIndex:idx_user_market_account_name;not null;size:50" json:"name"`
+	Market    string         `gorm:"uniqueIndex:idx_user_market_account_name;not null;size:20" json:"market"` // A-share, HK-stock, US-stock, Fund
+	IsDefault bool           `gorm:"not null;default:false" json:"isDefault"`
+	Holdings  []Holding      `gorm:"foreignKey:AccountID" json:"holdings,omitempty"`
+}
 
 type Holding struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-	UserID    uint           `gorm:"uniqueIndex:idx_user_asset;not null" json:"userId"`
+	UserID    uint           `gorm:"uniqueIndex:idx_user_account_asset;not null" json:"userId"`
 	User      User           `gorm:"foreignKey:UserID" json:"user"`
-	AssetID   uint           `gorm:"uniqueIndex:idx_user_asset;not null" json:"assetId"`
+	AccountID uint           `gorm:"uniqueIndex:idx_user_account_asset;not null" json:"accountId"`
+	Account   Account        `gorm:"foreignKey:AccountID" json:"account"`
+	AssetID   uint           `gorm:"uniqueIndex:idx_user_account_asset;not null" json:"assetId"`
 	Asset     Asset          `gorm:"foreignKey:AssetID" json:"asset"`
 	Quantity  float64        `gorm:"type:decimal(16,4);default:0" json:"quantity"`
 	CostPrice float64        `gorm:"type:decimal(16,4);default:0" json:"costPrice"`
@@ -68,7 +83,7 @@ type Combo struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 	UserID    uint           `gorm:"not null" json:"userId"`
 	Name      string         `gorm:"not null;size:50" json:"name"`
-	Color     string         `gorm:"size:20" json:"color"` // e.g. "#409EFF"
+	Color     string         `gorm:"size:20" json:"color"`                             // e.g. "#409EFF"
 	Market    string         `gorm:"not null;size:20;default:'A-share'" json:"market"` // A-share, HK-stock, US-stock, Fund
 	IsPublic  bool           `gorm:"not null;default:false" json:"isPublic"`
 	Holdings  []Holding      `gorm:"many2many:holding_combos;constraint:OnDelete:CASCADE;" json:"holdings,omitempty"`

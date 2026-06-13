@@ -1,5 +1,5 @@
-﻿symbol,market,quantity,cost_price,combos
-600519,A-share,100,1750.50,白酒组合;核心资产
-AAPL,US-stock,50,180.20,美股科技;核心资产
-00700,HK-stock,200,310.00,港股科技
-110011,Fund,10000,1.854,消费基金
+﻿symbol,market,account_name,quantity,cost_price,combos
+600519,A-share,默认账户,100,1750.50,白酒组合;核心资产
+AAPL,US-stock,默认账户,50,180.20,美股科技;核心资产
+00700,HK-stock,默认账户,200,310.00,港股科技
+110011,Fund,默认账户,10000,1.854,消费基金

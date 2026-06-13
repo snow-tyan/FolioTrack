@@ -8,7 +8,7 @@
         </div>
         <div class="card-body">
           <h3>导入持仓数据</h3>
-          <p>上传已备好的 CSV 文件导入持仓。若包含系统内未有的股票/基金，后台会自动拉取其名称和最新价格。重复制的标的会被覆盖。</p>
+          <p>上传已备好的 CSV 文件导入持仓。若包含系统内未有的股票/基金，后台会自动拉取其名称和最新价格。同一账户内重复制的标的会被覆盖。</p>
           
           <el-upload
             class="csv-uploader"
@@ -47,7 +47,7 @@
         </div>
         <div class="card-body">
           <h3>导出持仓数据</h3>
-          <p>将您当前的全部持仓标的、数量、均价以及所属的组合标签导出为 CSV 备份文件，方便在其他设备或 Excel 中分析和查看。</p>
+          <p>将您当前的全部持仓标的、账户、数量、均价以及所属的组合标签导出为 CSV 备份文件，方便在其他设备或 Excel 中分析和查看。</p>
           
           <div class="export-actions">
             <el-button type="primary" size="large" icon="Download" :loading="exporting" @click="handleExport">
@@ -60,6 +60,7 @@
             <ul>
               <li><strong>symbol</strong>: 证券或基金代码 (如 600519, AAPL)</li>
               <li><strong>market</strong>: 对应市场 (A-share, HK-stock, US-stock, Fund)</li>
+              <li><strong>account_name</strong>: 所属账户；为空时自动归入对应市场的默认账户</li>
               <li><strong>name</strong>: 证券或基金名称 (可选，导入时将被忽略)</li>
               <li><strong>quantity</strong>: 持股数量</li>
               <li><strong>cost_price</strong>: 持仓均价</li>
@@ -119,7 +120,7 @@ const handleUploadError = (err) => {
 
 const downloadTemplate = () => {
   // Generate sample CSV text
-  const csvContent = 'symbol,market,name,quantity,cost_price,combos\n600519,A-share,贵州茅台,100,1750.50,白酒组合;核心资产\nAAPL,US-stock,苹果,50,180.20,美股科技;核心资产\n00700,HK-stock,腾讯控股,200,310.00,港股科技\n110011,Fund,易方达优质精选,10000,1.854,消费基金\n'
+  const csvContent = 'symbol,market,account_name,name,quantity,cost_price,combos\n600519,A-share,默认账户,贵州茅台,100,1750.50,白酒组合;核心资产\nAAPL,US-stock,默认账户,苹果,50,180.20,美股科技;核心资产\n00700,HK-stock,默认账户,腾讯控股,200,310.00,港股科技\n110011,Fund,默认账户,易方达优质精选,10000,1.854,消费基金\n'
   
   // Write BOM for Excel auto-detection
   const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' })

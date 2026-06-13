@@ -169,6 +169,11 @@
                 </div>
               </template>
             </el-table-column>
+            <el-table-column label="账户" min-width="100">
+              <template #default="scope">
+                <span>{{ scope.row.account ? scope.row.account.name : '默认账户' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="数量" align="right" width="90">
               <template #default="scope">
                 <span class="font-outfit">{{ formatFloat(scope.row.quantity, 4) }}</span>

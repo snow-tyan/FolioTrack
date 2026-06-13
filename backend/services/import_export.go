@@ -17,7 +17,7 @@ import (
 // ExportHoldingsCSV generates a CSV file content representing the user's holdings
 func ExportHoldingsCSV(userID uint) ([]byte, error) {
 	var holdings []models.Holding
-	err := models.DB.Preload("Asset").Preload("Combos").Where("user_id = ?", userID).Find(&holdings).Error
+	err := models.DB.Preload("Asset").Preload("Account").Preload("Combos").Where("user_id = ?", userID).Find(&holdings).Error
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 	buf.Write([]byte{0xEF, 0xBB, 0xBF})
 
 	// Header row
-	err = writer.Write([]string{"symbol", "market", "name", "quantity", "cost_price", "combos"})
+	err = writer.Write([]string{"symbol", "market", "account_name", "name", "quantity", "cost_price", "combos"})
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +177,7 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 		row := []string{
 			h.Asset.Symbol,
 			h.Asset.Market,
+			h.Account.Name,
 			h.Asset.Name,
 			strconv.FormatFloat(h.Quantity, 'f', -1, 64),
 			strconv.FormatFloat(h.CostPrice, 'f', -1, 64),
@@ -196,7 +197,7 @@ func ExportHoldingsCSV(userID uint) ([]byte, error) {
 // ImportHoldingsCSV processes an uploaded CSV file containing holdings
 func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 	csvReader := csv.NewReader(reader)
-	
+
 	// Read header
 	header, err := csvReader.Read()
 	if err != nil {
@@ -229,11 +230,18 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 		for i, row := range rows {
 			symbol := strings.TrimSpace(row[headerMap["symbol"]])
 			market := strings.TrimSpace(row[headerMap["market"]])
+			accountName := ""
+			if accountIndex, ok := headerMap["account_name"]; ok && accountIndex < len(row) {
+				accountName = strings.TrimSpace(row[accountIndex])
+			}
 			quantityStr := strings.TrimSpace(row[headerMap["quantity"]])
 			costPriceStr := strings.TrimSpace(row[headerMap["cost_price"]])
 
 			if symbol == "" || market == "" {
 				continue // skip empty rows
+			}
+			if !IsValidMarket(market) {
+				return fmt.Errorf("row %d: unsupported market '%s'", i+2, market)
 			}
 
 			quantity, err := strconv.ParseFloat(quantityStr, 64)
@@ -244,6 +252,11 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 			costPrice, err := strconv.ParseFloat(costPriceStr, 64)
 			if err != nil {
 				return fmt.Errorf("row %d: invalid cost_price '%s'", i+2, costPriceStr)
+			}
+
+			account, err := ResolveAccountByName(tx, userID, market, accountName)
+			if err != nil {
+				return err
 			}
 
 			// 1. Find or create Asset
@@ -266,10 +279,11 @@ func ImportHoldingsCSV(userID uint, reader io.Reader) error {
 
 			// 2. Find or create Holding
 			var holding models.Holding
-			err = tx.Where("user_id = ? AND asset_id = ?", userID, asset.ID).First(&holding).Error
+			err = tx.Where("user_id = ? AND account_id = ? AND asset_id = ?", userID, account.ID, asset.ID).First(&holding).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				holding = models.Holding{
 					UserID:    userID,
+					AccountID: account.ID,
 					AssetID:   asset.ID,
 					Quantity:  quantity,
 					CostPrice: costPrice,

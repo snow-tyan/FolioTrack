@@ -24,6 +24,10 @@
               <el-option value="Fund" label="基金" />
             </el-select>
 
+            <el-select v-model="accountFilter" placeholder="过滤账户" size="small" clearable style="width: 140px;">
+              <el-option v-for="account in filteredAccounts" :key="account.id" :value="account.id" :label="account.name" />
+            </el-select>
+
             <el-select v-model="comboFilter" placeholder="过滤组合" size="small" clearable style="width: 120px;">
               <el-option v-for="combo in filteredCombos" :key="combo.id" :value="combo.id" :label="combo.name" />
             </el-select>
@@ -32,9 +36,14 @@
           </div>
         </div>
         
-        <el-button type="primary" icon="Plus" size="small" @click="openAddDialog">
-          添加持仓
-        </el-button>
+        <div class="right-actions">
+          <el-button icon="Wallet" size="small" @click="openAccountDialog">
+            管理账户
+          </el-button>
+          <el-button type="primary" icon="Plus" size="small" @click="openAddDialog">
+            添加持仓
+          </el-button>
+        </div>
       </div>
 
       <el-table :data="filteredHoldings" v-loading="loading" style="width: 100%">
@@ -54,6 +63,12 @@
             <el-tag :type="getMarketTagType(scope.row.asset ? scope.row.asset.market : '')" size="small" effect="dark">
               {{ getMarketName(scope.row.asset ? scope.row.asset.market : '') }}
             </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="账户" min-width="110">
+          <template #default="scope">
+            <span>{{ scope.row.account ? scope.row.account.name : '默认账户' }}</span>
           </template>
         </el-table-column>
 
@@ -169,6 +184,12 @@
           </el-select>
         </el-form-item>
 
+        <el-form-item label="所属账户" prop="accountId">
+          <el-select v-model="form.accountId" placeholder="选择账户" style="width: 100%;">
+            <el-option v-for="account in dialogFilteredAccounts" :key="account.id" :value="account.id" :label="account.name" />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="持仓数量" prop="quantity">
           <el-input-number v-model="form.quantity" :precision="4" :step="100" :min="0.0001" style="width: 100%;" />
         </el-form-item>
@@ -195,6 +216,73 @@
         <div class="dialog-footer">
           <el-button @click="dialogVisible = false">取 消</el-button>
           <el-button type="primary" :loading="submitLoading" @click="submitForm">确 定</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="accountDialogVisible"
+      title="管理账户"
+      width="560px"
+      destroy-on-close
+      align-center
+      append-to-body
+    >
+      <div class="account-toolbar">
+        <el-select v-model="accountForm.market" placeholder="选择市场" size="small" style="width: 130px;">
+          <el-option value="A-share" label="A股" />
+          <el-option value="HK-stock" label="港股" />
+          <el-option value="US-stock" label="美股" />
+          <el-option value="Fund" label="基金" />
+        </el-select>
+        <el-input v-model="accountForm.name" placeholder="账户名称" size="small" maxlength="50" />
+        <el-button type="primary" size="small" :loading="accountSaving" @click="createAccount">新增账户</el-button>
+      </div>
+
+      <el-table :data="accounts" size="small" style="width: 100%;" max-height="360">
+        <el-table-column label="市场" width="95">
+          <template #default="scope">
+            <el-tag size="small" :type="getMarketTagType(scope.row.market)" effect="dark">
+              {{ getMarketName(scope.row.market) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="账户名称" min-width="180">
+          <template #default="scope">
+            <el-input
+              v-if="editingAccountId === scope.row.id"
+              v-model="editingAccountName"
+              size="small"
+              maxlength="50"
+              @keyup.enter="saveAccountName(scope.row)"
+            />
+            <span v-else>{{ scope.row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="90" align="center">
+          <template #default="scope">
+            <el-tag size="small" :type="scope.row.isDefault ? 'success' : 'info'">
+              {{ scope.row.isDefault ? '默认' : '自建' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="170" align="center">
+          <template #default="scope">
+            <template v-if="editingAccountId === scope.row.id">
+              <el-button link type="primary" @click="saveAccountName(scope.row)">保存</el-button>
+              <el-button link @click="cancelEditAccount">取消</el-button>
+            </template>
+            <template v-else>
+              <el-button link type="primary" @click="startEditAccount(scope.row)">重命名</el-button>
+              <el-button link type="danger" :disabled="scope.row.isDefault" @click="deleteAccount(scope.row)">删除</el-button>
+            </template>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="accountDialogVisible = false">关 闭</el-button>
         </div>
       </template>
     </el-dialog>
@@ -226,16 +314,22 @@ const props = defineProps({
 
 const holdings = ref([])
 const combos = ref([])
+const accounts = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
+const accountDialogVisible = ref(false)
 const isEdit = ref(false)
 const isInitializing = ref(false)
 const submitLoading = ref(false)
+const accountSaving = ref(false)
 const currentHoldingId = ref(null)
+const editingAccountId = ref(null)
+const editingAccountName = ref('')
 
 const searchQuery = ref('')
 const marketFilter = ref('')
 const comboFilter = ref('')
+const accountFilter = ref('')
 
 
 const currentUserID = ref(0)
@@ -258,10 +352,16 @@ const formRef = ref(null)
 const form = reactive({
   symbol: '',
   market: 'A-share',
+  accountId: null,
   quantity: 100,
   costPrice: 10.0,
   comboIds: [],
   isPublic: false
+})
+
+const accountForm = reactive({
+  market: 'A-share',
+  name: ''
 })
 
 const formRules = {
@@ -270,6 +370,29 @@ const formRules = {
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
   costPrice: [{ required: true, message: '请输入持仓均价', trigger: 'blur' }]
 }
+
+const marketOrder = {
+  'A-share': 1,
+  'Fund': 2,
+  'HK-stock': 3,
+  'US-stock': 4
+}
+
+const sortAccounts = (items) => {
+  return [...items].sort((a, b) => {
+    const marketDiff = (marketOrder[a.market] || 99) - (marketOrder[b.market] || 99)
+    if (marketDiff !== 0) return marketDiff
+    if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1
+    return a.id - b.id
+  })
+}
+
+const filteredAccounts = computed(() => {
+  const list = marketFilter.value
+    ? accounts.value.filter((account) => account.market === marketFilter.value)
+    : accounts.value
+  return sortAccounts(list)
+})
 
 // Filtered combos based on selected market filter
 const filteredCombos = computed(() => {
@@ -284,12 +407,22 @@ const dialogFilteredCombos = computed(() => {
   return combos.value.filter((c) => c.market === form.market)
 })
 
+const dialogFilteredAccounts = computed(() => {
+  return sortAccounts(accounts.value.filter((account) => account.market === form.market))
+})
+
 // Watchers for resetting / filtering combo choices when market changes
 watch(marketFilter, (newMarket) => {
   if (newMarket && comboFilter.value) {
     const selectedCombo = combos.value.find((c) => c.id === comboFilter.value)
     if (selectedCombo && selectedCombo.market !== newMarket) {
       comboFilter.value = ''
+    }
+  }
+  if (newMarket && accountFilter.value) {
+    const selectedAccount = accounts.value.find((account) => account.id === accountFilter.value)
+    if (selectedAccount && selectedAccount.market !== newMarket) {
+      accountFilter.value = ''
     }
   }
 })
@@ -300,6 +433,10 @@ watch(() => form.market, (newMarket) => {
       const combo = combos.value.find((c) => c.id === id)
       return combo && combo.market === newMarket
     })
+  }
+  const selectedAccount = accounts.value.find((account) => account.id === form.accountId)
+  if (!selectedAccount || selectedAccount.market !== newMarket) {
+    form.accountId = getDefaultAccountId(newMarket)
   }
 })
 
@@ -342,6 +479,21 @@ const fetchCombos = async () => {
   }
 }
 
+const fetchAccounts = async () => {
+  try {
+    const data = await api.get('/accounts')
+    accounts.value = sortAccounts(data)
+  } catch (err) {
+    ElMessage.error(err.message || '获取账户失败')
+  }
+}
+
+const getDefaultAccountId = (market) => {
+  const account = accounts.value.find((item) => item.market === market && item.isDefault) ||
+    accounts.value.find((item) => item.market === market)
+  return account ? account.id : null
+}
+
 // Filtered Holdings computed property
 const filteredHoldings = computed(() => {
   const list = holdings.value.filter((h) => {
@@ -363,7 +515,11 @@ const filteredHoldings = computed(() => {
       ? h.combos && h.combos.some((c) => c.id === comboFilter.value)
       : true
 
-    return matchSearch && matchMarket && matchCombo
+    const matchAccount = accountFilter.value
+      ? h.accountId === accountFilter.value
+      : true
+
+    return matchSearch && matchMarket && matchCombo && matchAccount
   })
 
   // Sort by combos: keep identical combos together, with larger combo total valuation first
@@ -507,6 +663,7 @@ const openAddDialog = () => {
   dialogVisible.value = true
   form.symbol = ''
   form.market = 'A-share'
+  form.accountId = getDefaultAccountId('A-share')
   form.quantity = 100
   form.costPrice = 10.0
   form.comboIds = []
@@ -524,6 +681,7 @@ const openEditDialog = (row) => {
   
   form.symbol = row.asset ? row.asset.symbol : ''
   form.market = row.asset ? row.asset.market : 'A-share'
+  form.accountId = row.accountId || getDefaultAccountId(form.market)
   form.quantity = row.quantity
   form.costPrice = row.costPrice
   form.comboIds = row.combos ? row.combos.map((c) => c.id) : []
@@ -549,7 +707,7 @@ const submitForm = () => {
           ElMessage.success('添加成功')
         }
         dialogVisible.value = false
-        fetchHoldings()
+        await fetchHoldings()
       } catch (err) {
         ElMessage.error(err.message || '操作失败')
       } finally {
@@ -575,8 +733,88 @@ const handleDelete = (row) => {
   }).catch(() => {})
 }
 
+const openAccountDialog = () => {
+  accountDialogVisible.value = true
+  accountForm.market = marketFilter.value || 'A-share'
+  accountForm.name = ''
+  editingAccountId.value = null
+  editingAccountName.value = ''
+}
+
+const createAccount = async () => {
+  const name = accountForm.name.trim()
+  if (!name) {
+    ElMessage.warning('请输入账户名称')
+    return
+  }
+  accountSaving.value = true
+  try {
+    await api.post('/accounts', {
+      market: accountForm.market,
+      name
+    })
+    ElMessage.success('账户已新增')
+    accountForm.name = ''
+    await fetchAccounts()
+  } catch (err) {
+    ElMessage.error(err.message || '新增账户失败')
+  } finally {
+    accountSaving.value = false
+  }
+}
+
+const startEditAccount = (row) => {
+  editingAccountId.value = row.id
+  editingAccountName.value = row.name
+}
+
+const cancelEditAccount = () => {
+  editingAccountId.value = null
+  editingAccountName.value = ''
+}
+
+const saveAccountName = async (row) => {
+  const name = editingAccountName.value.trim()
+  if (!name) {
+    ElMessage.warning('账户名称不能为空')
+    return
+  }
+  try {
+    await api.put(`/accounts/${row.id}`, {
+      market: row.market,
+      name
+    })
+    ElMessage.success('账户已重命名')
+    cancelEditAccount()
+    await fetchAccounts()
+    await fetchHoldings()
+  } catch (err) {
+    ElMessage.error(err.message || '重命名失败')
+  }
+}
+
+const deleteAccount = (row) => {
+  ElMessageBox.confirm(`确定删除账户 ${row.name} 吗？`, '警告', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'danger'
+  }).then(async () => {
+    try {
+      await api.delete(`/accounts/${row.id}`)
+      ElMessage.success('账户已删除')
+      if (accountFilter.value === row.id) {
+        accountFilter.value = ''
+      }
+      await fetchAccounts()
+    } catch (err) {
+      ElMessage.error(err.message || '删除账户失败')
+    }
+  }).catch(() => {})
+}
+
 onMounted(() => {
   loadCurrentUser()
+  fetchAccounts()
   fetchHoldings()
   fetchCombos()
 })
@@ -615,6 +853,19 @@ onMounted(() => {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.right-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-toolbar {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .asset-info {
