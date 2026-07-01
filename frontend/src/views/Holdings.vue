@@ -152,9 +152,10 @@
         </el-table-column>
 
         <!-- Actions -->
-        <el-table-column label="操作" width="120" fixed="right" align="center">
+        <el-table-column label="操作" width="180" fixed="right" align="center">
           <template #default="scope">
             <el-button link type="primary" icon="Edit" @click="openEditDialog(scope.row)">修改</el-button>
+            <el-button link type="warning" @click="handleClearPosition(scope.row)">清仓</el-button>
             <el-button link type="danger" icon="Delete" @click="handleDelete(scope.row)">删除</el-button>
           </template>
         </el-table-column>
@@ -191,7 +192,7 @@
         </el-form-item>
 
         <el-form-item label="持仓数量" prop="quantity">
-          <el-input-number v-model="form.quantity" :precision="4" :step="100" :min="0.0001" style="width: 100%;" />
+          <el-input-number v-model="form.quantity" :precision="4" :step="quantityInputStep" :min="quantityInputMin" style="width: 100%;" />
         </el-form-item>
 
         <el-form-item label="持仓均价" prop="costPrice">
@@ -293,6 +294,7 @@
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
+import { getHoldingPnlPct, getHoldingPnlValue } from '../utils/holding'
 import IndexTicker from '../components/IndexTicker.vue'
 import MetricCards from '../components/MetricCards.vue'
 import TreeMapChart from '../components/TreeMapChart.vue'
@@ -364,11 +366,40 @@ const accountForm = reactive({
   name: ''
 })
 
+const validateQuantity = (_, value, callback) => {
+  if (value === undefined || value === null) {
+    callback(new Error('请输入数量'))
+    return
+  }
+  if (form.market === 'US-stock') {
+    if (value === 0) {
+      callback(new Error('美股持仓数量不能为 0，可填写负数'))
+      return
+    }
+  } else if (value <= 0) {
+    callback(new Error('数量必须大于 0'))
+    return
+  }
+  callback()
+}
+
+const validateCostPrice = (_, value, callback) => {
+  if (value === undefined || value === null) {
+    callback(new Error('请输入持仓均价'))
+    return
+  }
+  if (value <= 0) {
+    callback(new Error('持仓均价必须大于 0'))
+    return
+  }
+  callback()
+}
+
 const formRules = {
   symbol: [{ required: true, message: '请输入代码', trigger: 'blur' }],
   market: [{ required: true, message: '请选择市场', trigger: 'change' }],
-  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
-  costPrice: [{ required: true, message: '请输入持仓均价', trigger: 'blur' }]
+  quantity: [{ validator: validateQuantity, trigger: 'blur' }],
+  costPrice: [{ validator: validateCostPrice, trigger: 'blur' }]
 }
 
 const marketOrder = {
@@ -410,6 +441,11 @@ const dialogFilteredCombos = computed(() => {
 const dialogFilteredAccounts = computed(() => {
   return sortAccounts(accounts.value.filter((account) => account.market === form.market))
 })
+
+const isUsStockForm = computed(() => form.market === 'US-stock')
+const usesHundredLotStep = computed(() => ['A-share', 'HK-stock'].includes(form.market))
+const quantityInputStep = computed(() => usesHundredLotStep.value ? 100 : 1)
+const quantityInputMin = computed(() => isUsStockForm.value ? -999999999 : 0.0001)
 
 // Watchers for resetting / filtering combo choices when market changes
 watch(marketFilter, (newMarket) => {
@@ -571,16 +607,9 @@ const filteredHoldings = computed(() => {
   return items.map(item => item.holding)
 })
 
-const getPnlVal = (h) => {
-  const currPrice = h.asset ? h.asset.currentPrice : 0
-  return h.quantity * (currPrice - h.costPrice)
-}
+const getPnlVal = (h) => getHoldingPnlValue(h)
 
-const getPnlPct = (h) => {
-  if (h.costPrice === 0) return 0
-  const currPrice = h.asset ? h.asset.currentPrice : 0
-  return ((currPrice - h.costPrice) / h.costPrice) * 100
-}
+const getPnlPct = (h) => getHoldingPnlPct(h)
 
 const baseCurrencyRate = computed(() => {
   const rates = { CNY: 1.0, USD: 7.20, HKD: 0.92 }
@@ -691,16 +720,51 @@ const openEditDialog = (row) => {
   })
 }
 
+const normalizeSymbol = (symbol) => (symbol || '').trim().toUpperCase()
+
+const findDuplicateHolding = () => {
+  const targetSymbol = normalizeSymbol(form.symbol)
+  const targetAccountId = form.accountId || getDefaultAccountId(form.market)
+
+  return holdings.value.find((holding) => {
+    const holdingSymbol = normalizeSymbol(holding.asset?.symbol)
+    const holdingMarket = holding.asset?.market
+    return holdingSymbol === targetSymbol &&
+      holdingMarket === form.market &&
+      holding.accountId === targetAccountId
+  })
+}
+
 const submitForm = () => {
   if (!formRef.value) return
   formRef.value.validate(async (valid) => {
     if (valid) {
+      const duplicateHolding = !isEdit.value ? findDuplicateHolding() : null
+      if (duplicateHolding) {
+        try {
+          await ElMessageBox.confirm(
+            `账户 ${duplicateHolding.account?.name || '默认账户'} 中已存在 ${normalizeSymbol(form.symbol)} 持仓，是否用当前输入覆盖原有持仓？`,
+            '覆盖确认',
+            {
+              confirmButtonText: '确定覆盖',
+              cancelButtonText: '取消',
+              type: 'warning'
+            }
+          )
+        } catch {
+          return
+        }
+      }
+
       submitLoading.value = true
       try {
         if (isEdit.value) {
           // Update
           await api.put(`/holdings/${currentHoldingId.value}`, form)
           ElMessage.success('更新成功')
+        } else if (duplicateHolding) {
+          await api.put(`/holdings/${duplicateHolding.id}`, form)
+          ElMessage.success('已覆盖原有持仓')
         } else {
           // Create
           await api.post('/holdings', form)
@@ -729,6 +793,26 @@ const handleDelete = (row) => {
       fetchHoldings()
     } catch (err) {
       ElMessage.error(err.message || '删除失败')
+    }
+  }).catch(() => {})
+}
+
+const handleClearPosition = (row) => {
+  ElMessageBox.confirm(
+    `确定清仓 ${row.asset ? row.asset.name : '该持仓'} 吗？清仓后持仓数量和成本价都会重置为 0。`,
+    '清仓确认',
+    {
+      confirmButtonText: '确定清仓',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(async () => {
+    try {
+      await api.post(`/holdings/${row.id}/clear`)
+      ElMessage.success('清仓成功')
+      await fetchHoldings()
+    } catch (err) {
+      ElMessage.error(err.message || '清仓失败')
     }
   }).catch(() => {})
 }

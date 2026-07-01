@@ -61,7 +61,7 @@ services:
     container_name: foliotrack-local-frontend
     restart: unless-stopped
     ports:
-      - "8088:80"
+      - "18088:80"
     depends_on:
       - backend
 

@@ -17,6 +17,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import * as echarts from 'echarts'
+import { getHoldingPnlPct } from '../utils/holding'
 
 const props = defineProps({
   holdings: {
@@ -47,14 +48,6 @@ const marketNames = {
   'HK-stock': '港股',
   'US-stock': '美股',
   'Fund': '基金'
-}
-
-// Compute P&L percentage for a holding
-const getHoldingPnlPct = (h) => {
-  const cost = h.costPrice || 0
-  const curr = h.asset ? (h.asset.currentPrice || 0) : 0
-  if (cost === 0) return 0
-  return ((curr - cost) / cost) * 100
 }
 
 // Predefined high-contrast, distinct HSL-based palette for adjacent elements

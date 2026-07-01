@@ -177,8 +177,8 @@ type HoldingInput struct {
 	Symbol    string  `json:"symbol" binding:"required"`
 	Market    string  `json:"market" binding:"required"` // A-share, HK-stock, US-stock, Fund
 	AccountID uint    `json:"accountId"`
-	Quantity  float64 `json:"quantity" binding:"required,gt=0"`
-	CostPrice float64 `json:"costPrice" binding:"required,gt=0"`
+	Quantity  float64 `json:"quantity" binding:"required"`
+	CostPrice float64 `json:"costPrice" binding:"required"`
 	ComboIDs  []uint  `json:"comboIds"`
 	IsPublic  *bool   `json:"isPublic"`
 }
@@ -236,6 +236,14 @@ func CreateHolding(c *gin.Context) {
 	// Validate Market
 	if !services.IsValidMarket(market) {
 		utils.Error(c, http.StatusBadRequest, 40009, "不受支持的资产市场类型")
+		return
+	}
+	if symbol == "" {
+		utils.Error(c, http.StatusBadRequest, 40008, "资产代码不能为空")
+		return
+	}
+	if err := validateHoldingNumbers(market, input.Quantity, input.CostPrice, false); err != nil {
+		utils.Error(c, http.StatusBadRequest, 40008, err.Error())
 		return
 	}
 
@@ -338,6 +346,10 @@ func UpdateHolding(c *gin.Context) {
 		utils.Error(c, http.StatusInternalServerError, 50005, "数据库错误")
 		return
 	}
+	if err := validateHoldingNumbers(holding.Asset.Market, input.Quantity, input.CostPrice, false); err != nil {
+		utils.Error(c, http.StatusBadRequest, 40012, err.Error())
+		return
+	}
 
 	err = models.DB.Transaction(func(tx *gorm.DB) error {
 		account, err := services.ResolveAccountForHolding(tx, userID.(uint), holding.Asset.Market, input.AccountID)
@@ -386,6 +398,33 @@ func UpdateHolding(c *gin.Context) {
 	}
 
 	utils.Success(c, "更新持仓成功")
+}
+
+func ClearHolding(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	holdingIDStr := c.Param("id")
+	holdingID, err := strconv.ParseUint(holdingIDStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, 40040, "无效的 ID")
+		return
+	}
+
+	result := models.DB.Model(&models.Holding{}).
+		Where("id = ? AND user_id = ?", holdingID, userID).
+		Updates(map[string]interface{}{
+			"quantity":   0,
+			"cost_price": 0,
+		})
+	if result.Error != nil {
+		utils.Error(c, http.StatusInternalServerError, 50025, "清仓失败")
+		return
+	}
+	if result.RowsAffected == 0 {
+		utils.Error(c, http.StatusNotFound, 40041, "未找到持仓记录")
+		return
+	}
+
+	utils.Success(c, "清仓成功")
 }
 
 func DeleteHolding(c *gin.Context) {

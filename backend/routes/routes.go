@@ -86,6 +86,7 @@ func SetupRouter() *gin.Engine {
 			protected.GET("/holdings", controllers.ListHoldings)
 			protected.POST("/holdings", controllers.CreateHolding)
 			protected.PUT("/holdings/:id", controllers.UpdateHolding)
+			protected.POST("/holdings/:id/clear", controllers.ClearHolding)
 			protected.DELETE("/holdings/:id", controllers.DeleteHolding)
 
 			// Accounts

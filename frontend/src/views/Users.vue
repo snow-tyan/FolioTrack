@@ -222,6 +222,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
+import { getHoldingPnlPct, getHoldingPnlValue } from '../utils/holding'
 import MetricCards from '../components/MetricCards.vue'
 import TreeMapChart from '../components/TreeMapChart.vue'
 
@@ -467,16 +468,9 @@ const formatFloat = (val, dec) => {
   return val.toFixed(dec)
 }
 
-const getPnlVal = (h) => {
-  const currPrice = h.asset ? h.asset.currentPrice : 0
-  return h.quantity * (currPrice - h.costPrice)
-}
+const getPnlVal = (h) => getHoldingPnlValue(h)
 
-const getPnlPct = (h) => {
-  if (h.costPrice === 0) return 0
-  const currPrice = h.asset ? h.asset.currentPrice : 0
-  return ((currPrice - h.costPrice) / h.costPrice) * 100
-}
+const getPnlPct = (h) => getHoldingPnlPct(h)
 
 const getCurrencySymbol = (currency) => {
   const symbols = {
